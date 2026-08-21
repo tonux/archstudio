@@ -784,9 +784,255 @@ keep a file:
 npm run build && npm start          # a VPS, a Raspberry Pi, a container with a volume
 ```
 
-There is no authentication. Put it behind your VPN, a reverse-proxy basic-auth, or a Tailscale
-network — do not expose it to the open internet as is. Adding auth means one middleware and a
-session check in the API routes; the data model does not need to change.
+### TOGAF's ADM, and compliance
+
+**New project → TOGAF phase** fills the document with the chapters that phase expects.
+Cumulatively: a project in phase B still carries the vision it came from, because
+architecture is cumulative and a document that dropped phase A when it reached B would be a
+document with no reason in it.
+
+Saying a phase also switches the printable document onto **TOGAF's spine** — Architecture
+Vision, Business Architecture, Information Systems, Technology, Opportunities & Solutions,
+Migration Planning, Implementation Governance, Change Management — rather than the ADD
+plan. Two spines rather than one configurable one: they are different documents with
+different readers. A project that never asked stays on the ADD plan, and the same chapter
+number means a different part on each.
+
+Four of the chapters carry a **question rather than an empty box** — the capability map,
+the motivation cards, the roadmap and the compliance report are answers this app can
+already give, and offering someone an empty box where a real answer belongs is how a
+template teaches people to ignore it.
+
+No gates, no workflow, no state machine. The ADM is a cycle organisations run in their own
+way, and an app that enforced a particular way of running it would be wrong everywhere.
+
+**Compliance** checks six rules against the referential and every drawing:
+
+| Rule | |
+|---|---|
+| Every application has an owner | An actor or a domain is accountable |
+| Every application carries a capability | One that supports nothing is mislabelled or unnecessary |
+| Nothing runs on a technology we decided to leave | A component on a `retire` standard is an unplanned migration |
+| Every capability is carried by somebody | Rolled up: a parent whose children are carried is carried |
+| Every component belongs to an application | Counted per project, not per component |
+| Every project belongs to a domain | Otherwise no domain architect can review it |
+
+Every finding names **who can act on it**. A report that lists two hundred violations and no
+owners is a report that gets filed. And a finding is not automatically a mistake — a new
+application has no owner yet, and that is fine; the report makes it visible, deciding is
+still someone's job.
+
+The rules are not configurable, and that is a decision: six rules everybody understands beat
+a rule engine nobody configures, and each of these is derived from data the app already has,
+so none of them can be true-but-unmeasurable.
+
+### The business layer
+
+**Capability map** — a section of type *Capability map* draws the capability tree as
+nested boxes, with **how many applications carry each one**. That number is what makes it
+an analysis rather than an org chart: a box carried by nobody is a gap and is drawn dashed;
+one carried by three or more is a conversation. Filled from the referential at export and
+frozen into the section, so the map draws offline in the standalone HTML.
+
+A count is inclusive of the subtree and counts **applications, not mentions** — one
+application appearing under three sub-boxes counts once, or the number would be worse than
+no number.
+
+**Why it is like this** — the *Why* panel in Content records drivers, goals, principles,
+requirements, constraints and assessments, and for each one **what in this document
+realises it**. That last field is the whole value: a list of goals nobody has connected to
+anything is a slide, and a goal with three components against it is a claim somebody can
+check. A section with the motivation question resolves into ordinary cards at export —
+traceability is a list, not a picture, so it costs the viewer nothing.
+
+**Generate application landscape** — on the referential screen. Every application, banded by
+the domain that owns it, with the dependencies **your project diagrams already draw**
+between them; colour says whether anyone has drawn it at all. Nothing new is authored: an
+application landscape *is* the banded diagram this app has always drawn, with the layers
+renamed, which is why it costs almost nothing. It arrives with a capability map and a
+coverage table already in it, and it is an ordinary project from that moment — a
+regenerated view nobody can annotate is a view nobody uses.
+
+**Flows** gain a `kind`: a customer journey and a value stream are the same shape and
+differ only in whose words they are told in.
+
+**ArchiMate** gains the layers to match: `Capability` (Strategy), the six motivation
+elements — which are the six words this format already used, because they were taken from
+ArchiMate in the first place — and `BusinessProcess` / `ValueStream` for flows.
+`Realization` runs concrete → abstract, which is why the field is called `realizedBy` and
+not `realizes`.
+
+### Trajectory — today, the steps, the target
+
+**Plateaus** in the palette rail declare the states this landscape is planned to go
+through, in time order. Each component then says which plateau it **arrives at**, which one
+**reworks** it, and which one **retires** it. The toolbar draws any of them; `?plateau=`
+exports any of them.
+
+**One document, not one per state.** The obvious alternative — an AS-IS project and a
+TO-BE project — means maintaining a delta by hand between two files that start diverging
+the day after they are created.
+
+The design that makes this cheap is worth stating, because it is why the feature is small:
+`projectAt(doc, plateau)` is a pure function returning an **ordinary document**, in which
+the plan has been resolved into the `new` / `changed` / `removed` marks the format has
+always had. Everything downstream is unchanged —
+
+- every renderer already knows how to draw the result;
+- the standalone viewer's **Transition** toggle already understands the marks, so
+  `viewer/engine.js` is **not touched by this feature at all**;
+- `diff.ts` compares two plateaus with **no code written for it** — "what changes between
+  the 2026 step and the target" was already a question the app could answer;
+- `?plateau=` sits beside `?revisionId=` in the export route, with the same fall-back:
+  both answer *which version of this drawing*, one backwards in time and one forwards.
+
+A dependency on something absent from a plateau is not drawn there, and a flow step
+pointing at it is dropped — `deps` is the single source of truth for edges, so that
+filtering happens once, in the projection.
+
+Two edges have a defined answer rather than a surprise. A plan naming a plateau the
+document does not declare is **ignored**, not obeyed: a typo in an invisible id must not
+delete a component from every state. And something that arrives and is retired at the same
+plateau reads as **removed** — marking something for removal is the most consequential
+thing this format can say, and it must never be the mark that gets swallowed.
+
+**Roadmap** — a section with `computed: { query: 'roadmap' }` becomes a timeline of the
+plateaus with what arrives, what is reworked and what retires at each, frozen and dated at
+export like every other computed section.
+
+**ArchiMate** — the export gains the Implementation & Migration layer: one `Plateau`
+element per step aggregating what stands there, and one `Gap` per transition naming what
+changes. That closes the loop with the mapping in `docs/archimate.md`.
+
+### The enterprise referential
+
+An application exists **once**, however many diagrams draw it. **Referential** in the
+workspace footer is where applications, capabilities, actors, business objects,
+technology standards and domains live; the inspector's *Enterprise architecture* section
+attaches a component to them.
+
+Six kinds, not sixty. A closed, small vocabulary someone can hold in their head beats a
+faithful metamodel nobody fills in.
+
+The design decision worth knowing about is that **the document carries a frozen copy** —
+an *imprint* — of the names it cites, not just their ids. A standalone HTML file emailed
+to a committee has to read "carries the Billing capability" six months later, offline,
+with no referential in reach, and an id would render as `e_7f3a`. So:
+
+- renaming an entity reaches each citing document **on its next save**;
+- an export already sent keeps the name of the day, which is the right reading for a
+  dated deliverable;
+- deleting an entity does not rewrite anyone's document — each drops the citation on its
+  own next save.
+
+`project_entity_links` is an **index, not a source**: the blob in `projects.data` is the
+truth, and `POST /api/ea/reindex` rebuilds the index from the blobs whenever you want to
+be sure. `listProjects` reads derived counts from `project_stats` rather than parsing
+every document, which is the general rule — as soon as an answer needs every blob, it
+needs an index instead.
+
+**Import** — `GET /api/ea/import` downloads a starter CSV; the dialog takes one back.
+Header: `kind,code,name,parent,status,description`. A row matched on its code, or on its
+exact name within the same kind, is **updated rather than duplicated**, so re-importing
+the same spreadsheet is safe. Matching is exact and nothing fuzzier: a near-match that
+silently updated the wrong application is what makes people stop trusting a referential.
+Every refused row comes back with a sentence saying why.
+
+An ArchiMate *import* is not here yet — only the export. See `docs/archimate.md`.
+
+### Analysis — the five questions
+
+**Analysis** in the workspace footer asks questions across every project at once. Until
+the referential existed, each of these began with "open every diagram and look":
+
+| Question | What it reads |
+|---|---|
+| **If I decommission this, who breaks?** | The application-level dependency graph, derived from the `deps` already drawn in every diagram |
+| **Which applications carry this capability?** | Including everything under it in the tree |
+| **Where is a capability carried by nobody — or by seven things?** | Nobody is a gap; three or more is worth a conversation |
+| **Who is still on a technology we decided to leave?** | Declared relationships *and* components naming it in their technologies |
+| **What has nobody filled in?** | The list to read before trusting any of the other four |
+
+Nothing new has to be authored for the first one to work. Two components in two different
+diagrams that cite the same application are the same node, and an application-level edge
+falls out of a component dependency somebody drew months ago. Evidence is labelled:
+`drawn` means a diagram shows it, `declared` means someone asserted it in the referential.
+Technology matching is **exact** — a near miss reported as a fact is what gets a tool
+thrown out.
+
+**The answers leave.** A standalone HTML file cannot carry a query engine, so a section
+can hold a *question* — `computed: { query, subject }` — which is resolved on the server at
+export or print time and lands in the document as an ordinary table, with the date it was
+true. What a committee reads six months later is the answer as it stood, which is the
+right semantics for a deliverable and impossible with a live query. `viewer/engine.js` is
+untouched by any of this: a frozen answer is indistinguishable from a table somebody typed.
+
+Cost, stated rather than discovered: building the cross-project graph parses every
+document. On 200 applications across 40 projects that is about **1 ms** end to end. If an
+install ever outgrows it, the fix is an index of component dependencies written by
+`reindexProject` — not a cache.
+
+### Who can open it
+
+Three modes, in **People** in the workspace footer. The default is the first one, and an
+upgrade never changes it — a release that locked an operator out of their own data would be
+a worse bug than any it fixed.
+
+| Mode | What it means |
+|---|---|
+| **No authentication** (default) | Anyone who can reach the server can edit. Put it behind your VPN, a reverse-proxy basic-auth, or a Tailscale network — do not expose it to the open internet as is. |
+| **Trusted proxy header** | A reverse proxy — oauth2-proxy, Authelia, your load balancer — signs people in and passes the result in `X-Forwarded-Email`. This is what most companies already run, and it needs no dependency here. |
+| **Local accounts** | Email and password, hashed with scrypt and stored in `data/studio.db`. Good for a demo or a single team. No password reset, no lockout. |
+
+A **trusted header is only as trustworthy as the deployment**: a header is trivially set by
+anything that can reach the port, so nothing must reach this process except through the proxy.
+Bind to localhost, or to the proxy's network, and not to `0.0.0.0`.
+
+Set `AUTH_MODE=off|header|local` in the environment to pin the mode. It then wins over the
+dialog and cannot be changed from a browser, which is what you want for a deployment you
+would like to stay reproducible. `AUTH_EMAIL_HEADER` and `AUTH_NAME_HEADER` override the
+header names; `SECURE_COOKIES=1` (or a `PUBLIC_ORIGIN` on `https://`) marks the session
+cookie `secure` — leave it off when you serve over plain HTTP on an internal network, or
+signing in will silently do nothing.
+
+On a fresh install with local accounts, the first email and password posted to the login page
+**creates** the account that owns the install. There is no other way in, and the window closes
+the moment it is used.
+
+### Roles, and proposals
+
+Four roles, in **People**: **viewer** reads and exports, **contributor** proposes,
+**architect** edits directly and reviews, **admin** also decides who has a role. A role is
+granted globally or **scoped to a domain** — an architect of Finance is an architect of
+every project that domain owns, and nobody has to keep a list.
+
+Every decision goes through one pure function, `can()` in `src/lib/auth/policy.ts`, tested
+against every role × action pair. `grep -rn authorize src/app` lists every guarded entry
+point, which is the question an audit actually asks — an authorisation model scattered
+across seventeen handlers is one nobody can check.
+
+**With nobody named as an administrator, everyone signed in can do everything.** That is
+deliberate: a fresh install that has just switched authentication on has no roles at all,
+and refusing everyone would be a locked door with the key inside. The valve shuts the moment
+one admin exists, and the People dialog says so while it is open.
+
+**Proposals.** Someone who may propose but not write has their edits routed into a
+proposal — silently, in the same editor, with the same autosave. There is no second
+"propose a change" surface, because a second editor is always the worse one. **Reviews**
+shows each proposal as a diff in sentences, using the same component the Versions panel
+uses: reviewing a change *is* comparing two documents.
+
+The diff is against **what the proposal was opened on**, not against the project as it
+stands now. Comparing to now would quietly attribute to the author every change anyone else
+made in the meantime; the screen warns separately when the project has drifted underneath a
+proposal. Approving is `updateProject` followed by `freezeVersion` — the two operations the
+app already had — and leaves a frozen version signed by whoever approved it.
+
+There is no `src/middleware.ts`, and that is deliberate rather than unfinished: Next's
+middleware runs on the edge runtime in this version and cannot read a `node:sqlite` session
+store. The check is an explicit `requireApi()` at the top of every route handler and a
+`requirePage()` in every page, which has the useful side effect that
+`grep -rn requireApi src/app` lists every guarded entry point.
 
 **Docker** — a `Dockerfile` and `docker-compose.yml` ship at the repo root, mainly for anyone
 whose local Node is older than the `node:sqlite` floor above.

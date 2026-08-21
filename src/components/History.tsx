@@ -23,7 +23,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Icon } from './Icon';
 import { useAsk } from './Ask';
-import { byArea, diffArchitecture, summarise, type ChangeKind } from '@/lib/diff';
+import { diffArchitecture, summarise } from '@/lib/diff';
+import { DiffList } from './DiffList';
 import { nextVersionNumber, snapshotsOf, versionsOf } from '@/lib/versions';
 import type { Architecture, RevisionRecord } from '@/lib/types';
 
@@ -45,11 +46,6 @@ const stamp = (iso: string) =>
   parseStamp(iso).toLocaleString(undefined, {
     day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit'
   });
-
-/* `+`, `−`, `~` rather than three coloured dots: circles are reserved for nodes
- * in a graph everywhere else in this app, and the glyph survives being read by
- * someone who cannot separate the two colours. */
-const KIND_GLYPH: Record<ChangeKind, string> = { added: '+', removed: '−', changed: '~' };
 
 /** The live document, given the same shape as a row so the list can hold both
  *  without every renderer asking which it has. `id` is the sentinel the two
@@ -138,7 +134,6 @@ export default function History({ projectId, doc, dirty, onClose, onRestore, onV
   }, [past, other, against, doc, compared, current, list]);
 
   const diff = useMemo(() => (from && to ? diffArchitecture(from, to) : null), [from, to]);
-  const groups = useMemo(() => (diff ? byArea(diff) : []), [diff]);
 
   /** The number to offer next: whatever the newest version carried, bumped. */
   const proposed = nextVersionNumber(versions[0]?.version ?? doc.meta.version);
@@ -246,7 +241,13 @@ export default function History({ projectId, doc, dirty, onClose, onRestore, onV
       onClick={() => setPicked(r.id)}>
       <span className="when">{r.version ? <b className="vnum">{r.version}</b> : since(r.createdAt)}</span>
       {r.label && <b>{r.label}</b>}
-      <span className="at">{stamp(r.createdAt)} · {r.componentCount} comp.</span>
+      {/* The author only appears once there is one. An install with no
+          authentication, and every row written before there was any, say
+          nothing here rather than "unknown" — which would read as a gap in the
+          record instead of a period when nobody was being asked. */}
+      <span className="at">
+        {stamp(r.createdAt)} · {r.componentCount} comp.{r.author ? ` · ${r.author}` : ''}
+      </span>
     </button>
   );
 
@@ -360,24 +361,7 @@ export default function History({ projectId, doc, dirty, onClose, onRestore, onV
                     </div>
                   </div>
 
-                  <div className="hist-diff">
-                    {groups.length === 0 ? (
-                      <p className="muted">Nothing to show — the two documents match.</p>
-                    ) : groups.map(g => (
-                      <div className="diffgroup" key={g.area}>
-                        <div className="sect-label">{g.label}<span className="spacer" />
-                          <span className="count">{g.changes.length}</span>
-                        </div>
-                        {g.changes.map((c, i) => (
-                          <div className="diffrow" key={i}>
-                            <i className={`dkind ${c.kind}`}>{KIND_GLYPH[c.kind]}</i>
-                            <span className="what">{c.label}</span>
-                            {c.detail && <em>{c.detail}</em>}
-                          </div>
-                        ))}
-                      </div>
-                    ))}
-                  </div>
+                  <DiffList diff={diff} empty="Nothing to show — the two documents match." />
                 </>
               )}
             </div>

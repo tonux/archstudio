@@ -11,6 +11,7 @@
  */
 
 import { componentsWithEnvs, environmentsInUse } from '../environments';
+import { TOGAF_PARTS } from './preset-togaf';
 import type { Architecture, Flow, Section } from '../types';
 import { t, type L10n, type Lang } from '../templates/types';
 
@@ -63,8 +64,23 @@ const PART_TITLES: Record<string, L10n> = {
   '6': { en: 'Appendices', fr: 'Annexes' }
 };
 
-const SPINE = ['1', '2', '3', '4', '5', '6'];
-const APPENDIX = '6';
+/* TOGAF's own spine, eight phases plus appendices. A document says which one it
+ * is on through `meta.outline`; unset reads as the ADD plan, which is what every
+ * document written before this existed is.
+ *
+ * Two spines rather than one configurable spine: they are different documents
+ * with different readers, and a single parameterised outline would have been a
+ * way of pretending otherwise. */
+const SPINES: Record<'add' | 'togaf', { parts: string[]; titles: Record<string, L10n> }> = {
+  add: { parts: ['1', '2', '3', '4', '5', '6'], titles: PART_TITLES },
+  togaf: {
+    parts: ['1', '2', '3', '4', '5', '6', '7', '8', '9'],
+    titles: TOGAF_PARTS as unknown as Record<string, L10n>
+  }
+};
+
+const spineOf = (doc: Architecture) =>
+  SPINES[doc.meta?.outline === 'togaf' ? 'togaf' : 'add'];
 
 const GENERATED: Record<string, L10n> = {
   inventory: { en: 'Component inventory', fr: 'Inventaire des composants' },
@@ -97,11 +113,16 @@ export function slotKey(chapter: string | undefined): number[] | null {
   return parts;
 }
 
-/** The part a section belongs to: its leading segment, or the appendices. */
-export function partOf(section: Section): string {
+/** The part a section belongs to: its leading segment, or the appendices.
+ *
+ *  Which spine it is measured against depends on the document — chapter "7" is
+ *  Implementation Governance under TOGAF and an appendix under the ADD plan. */
+export function partOf(section: Section, doc?: Architecture): string {
+  const spine = doc ? spineOf(doc) : SPINES.add;
+  const appendix = spine.parts[spine.parts.length - 1];
   const key = slotKey(section.doc?.chapter);
   const head = key ? String(key[0]) : '';
-  return SPINE.includes(head) && head !== APPENDIX ? head : APPENDIX;
+  return spine.parts.includes(head) && head !== appendix ? head : appendix;
 }
 
 function compareKeys(a: number[] | null, b: number[] | null, ia: number, ib: number): number {
@@ -123,11 +144,14 @@ export function buildOutline(doc: Architecture): Outline {
   const lang = docLang(doc);
   const s = (v: L10n) => t(v, lang);
 
+  const spine = spineOf(doc);
+  const APPENDIX = spine.parts[spine.parts.length - 1];
+
   const buckets = new Map<string, { section: Section; key: number[] | null; index: number }[]>(
-    SPINE.map(p => [p, []])
+    spine.parts.map(p => [p, []])
   );
   doc.sections.forEach((section, index) => {
-    buckets.get(partOf(section))!.push({ section, key: slotKey(section.doc?.chapter), index });
+    buckets.get(partOf(section, doc))!.push({ section, key: slotKey(section.doc?.chapter), index });
   });
   buckets.forEach(list => list.sort((a, b) => compareKeys(a.key, b.key, a.index, b.index)));
 
@@ -141,12 +165,21 @@ export function buildOutline(doc: Architecture): Outline {
     }));
 
   const hasIntro = !!(doc.meta.intro || doc.meta.principle || doc.meta.facts?.length);
-  const parts: DocPart[] = SPINE.map(part => {
+  const parts: DocPart[] = spine.parts.map(part => {
     const lead: DocBody[] = [];
     const entries: DocEntry[] = [];
 
+    /* Where the generated blocks land differs between the two spines: the
+     * diagram belongs to "Application architecture" under the ADD plan and to
+     * "Information systems" under TOGAF, and the environments table to
+     * "DevOps & delivery" or to "Technology architecture". Same content, two
+     * places, because the two documents are read by different people. */
+    const togaf = doc.meta?.outline === 'togaf';
+    const DIAGRAM_PART = togaf ? '3' : '2';
+    const ENVIRONMENTS_PART = togaf ? '4' : '4';
+
     if (part === '1' && hasIntro) lead.push({ kind: 'intro' });
-    if (part === '2' && doc.components.length) {
+    if (part === DIAGRAM_PART && doc.components.length) {
       lead.push({ kind: 'diagram' });
       entries.push({
         number: '', title: s(GENERATED.inventory), subtitle: s(GENERATED.inventorySub),
@@ -158,7 +191,7 @@ export function buildOutline(doc: Architecture): Outline {
      * the page someone prints before a release. Drawn only when a component
      * actually fills one in: a document that declared three environments and
      * filled none would otherwise print a grid of dashes. */
-    if (part === '4' && componentsWithEnvs(doc.components).length
+    if (part === ENVIRONMENTS_PART && componentsWithEnvs(doc.components).length
       && environmentsInUse(doc.components, doc.environments).length) {
       entries.push({
         number: '', title: s(GENERATED.environments), subtitle: s(GENERATED.environmentsSub),
@@ -182,7 +215,7 @@ export function buildOutline(doc: Architecture): Outline {
       });
     }
 
-    return { number: '', title: s(PART_TITLES[part]), lead, entries };
+    return { number: '', title: s(spine.titles[part]), lead, entries };
   }).filter(p => p.lead.length || p.entries.length);
 
   parts.forEach((p, i) => {

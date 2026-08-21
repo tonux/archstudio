@@ -16,6 +16,7 @@ import { EnrichDialog, useAiStatus } from './Analyse';
 import { deleteComponent, PALETTE, PALETTE_DARK, slugify } from '@/lib/defaults';
 import { withDrawioXml } from '@/lib/export/png';
 import { displayLayerLabel, layerTintEnabled, layerTintVar } from '@/lib/layers';
+import { hasTrajectory, projectAt, summarise } from '@/lib/plateau';
 import { ensurePlacementScaffold, componentBrick } from '@/lib/lego/place';
 import { syncTechnologies } from '@/lib/lego/stack';
 import { loadLegoCatalog } from '@/lib/lego/client';
@@ -839,7 +840,7 @@ function Finder({ doc, onClose, onPick }: {
  * One component for the three because the frame is the same and only the middle
  * differs; splitting it would mean three copies of the focus, the Escape and the
  * Enter handling, which is the part that has to be identical. */
-type RailKind = 'layer' | 'scope' | 'zone' | 'environment';
+type RailKind = 'layer' | 'scope' | 'zone' | 'environment' | 'plateau';
 
 const RAIL_COPY: Record<RailKind, { title: string; blurb: string; placeholder: string }> = {
   layer: {
@@ -861,6 +862,11 @@ const RAIL_COPY: Record<RailKind, { title: string; blurb: string; placeholder: s
     title: 'New environment',
     blurb: 'One of the places this whole architecture runs — dev, SA, production. Declare them in pipeline order; every table reads its columns from it.',
     placeholder: 'Production'
+  },
+  plateau: {
+    title: 'New plateau',
+    blurb: 'One state of the landscape on the way to the target. Declare them in time order — the first is today. Components then say which one they arrive at and which one retires them.',
+    placeholder: 'Target 2027'
   }
 };
 
@@ -1045,6 +1051,14 @@ function ExportMenu({ projectId, name, notify }: {
           <a href={`${api}?format=svg`}>
             <Icon name="download" size={14} />
             <span>SVG<em>Vector — scales without going soft, for slides and print</em></span>
+          </a>
+          <hr />
+          {/* Last, and on its own: the others are ways to *show* the drawing,
+              this is the one that hands the model to another discipline's tool.
+              Re-exporting merges rather than duplicating — see docs/archimate.md. */}
+          <a href={`${api}?format=archimate`}>
+            <Icon name="layers" size={14} />
+            <span>ArchiMate<em>Open Exchange XML — opens in Archi, laid out</em></span>
           </a>
         </div>
       )}
@@ -1307,7 +1321,13 @@ interface StageProps {
  * of the sheet; here it only fades them. You are still editing the components
  * you filtered out — a card that vanished is one you cannot drop anything onto,
  * and a layer that lost its cards is a row you would delete by mistake. */
-function CanvasStage(props: StageProps) {
+/* Selecting a plateau projects the document **for display**. Every edit still
+ * goes through `patch`, which always writes the living document — a component
+ * dragged to another layer moves at every plateau, which is what a layer move
+ * means. So the projection is safe to show without freezing the canvas: the
+ * only thing it takes away is the ability to select a card that is not there
+ * yet, which is the correct reading of "not there yet". */
+function CanvasStage(rawProps: StageProps) {
   const frameRef = useRef<HTMLDivElement>(null);
   const hostRef = useRef<HTMLDivElement>(null);
   const zoomRef = useRef(1);
@@ -1315,6 +1335,23 @@ function CanvasStage(props: StageProps) {
   const [compact, setCompact] = useState(false);
   const [filter, setFilter] = useState<string | null>(null);
   const [place, setPlace] = useState<string | null>(null);
+  const [plateau, setPlateau] = useState<string | null>(null);
+
+  /* Display only — `rawProps.patch` is untouched and still writes the living
+   * document. `projectAt` returns the same object when nothing is selected, so
+   * the ordinary path costs one lookup. */
+  const props: StageProps = useMemo(
+    () => (plateau ? { ...rawProps, doc: projectAt(rawProps.doc, plateau) } : rawProps),
+    [rawProps, plateau]
+  );
+  const plateaus = rawProps.doc.plateaus || [];
+
+  /* A plateau that was deleted while it was being viewed leaves the toolbar
+   * pointing at nothing, and the canvas silently back on the live document.
+   * Clearing it is the honest reading. */
+  useEffect(() => {
+    if (plateau && !plateaus.some(p => p.id === plateau)) setPlateau(null);
+  }, [plateau, plateaus]);
 
   /* Firefox only learned `zoom` in 126. Assumed present on the server, where
    * there is no CSS object to ask — the factor is 1 there and neither mechanism
@@ -1323,6 +1360,8 @@ function CanvasStage(props: StageProps) {
     typeof CSS === 'undefined' || typeof CSS.supports !== 'function'
       ? true : CSS.supports('zoom', '0.5'));
 
+  /* `doc` comes from the projected props, so everything below this line — the
+   * filters, the band plan, the edges — draws the plateau being viewed. */
   const { doc, groupColor, onZoomChange } = props;
   useEffect(() => { onZoomChange(zoom); }, [zoom, onZoomChange]);
   const scopes = useMemo(
@@ -1508,6 +1547,22 @@ function CanvasStage(props: StageProps) {
         <div className="toolside">
         <span className="hintline">⌘ + wheel = zoom · drag = pan</span>
         <div className="tools">
+          {/* Only once a trajectory exists. A selector offering "now" and
+              nothing else is furniture, and the whole rail already teaches that
+              plateaus are opt-in. */}
+          {plateaus.length > 0 && (
+            <select className="select" style={{ width: 'auto', minWidth: 120 }}
+              value={plateau ?? ''}
+              title="Draw the landscape as it stands at one plateau"
+              onChange={e => setPlateau(e.target.value || null)}>
+              <option value="">Living document</option>
+              {plateaus.map(p => (
+                <option key={p.id} value={p.id}>
+                  {p.name}{p.date ? ` · ${p.date}` : ''}
+                </option>
+              ))}
+            </select>
+          )}
           <button className="chip" aria-pressed={compact} onClick={() => setCompact(c => !c)}
             title="Strip the cards to their icon and name">Compact</button>
           <div className="zoombar">
@@ -2046,6 +2101,19 @@ function Palette({ doc, patch, catalog, notify, onOpenPlacement }: {
         });
         return d;
       });
+    } else if (creating === 'plateau') {
+      /* Appended, never sorted, for the same reason as environments: the order
+       * *is* the roadmap, and only the author knows whether the regulatory
+       * deadline lands before or after the migration. */
+      patch(d => {
+        const list = d.plateaus || [];
+        d.plateaus = [...list, {
+          id: slugify(v.name, list.map(p => p.id)), name: v.name,
+          /* The first one is where you are standing. */
+          kind: list.length === 0 ? 'baseline' : 'transition'
+        }];
+        return d;
+      });
     } else if (creating === 'environment') {
       /* Appended, never sorted: the order is the pipeline, and the author is the
        * only one who knows whether SA comes before or after the integration
@@ -2145,6 +2213,9 @@ function Palette({ doc, patch, catalog, notify, onOpenPlacement }: {
 
       <EnvironmentsPanel doc={doc} patch={patch} notify={notify} fold={fold}
         onAdd={() => setCreating('environment')} />
+
+      <PlateausPanel doc={doc} patch={patch} notify={notify} fold={fold}
+        onAdd={() => setCreating('plateau')} />
 
       <EdgeLegend doc={doc} fold={fold} />
 
@@ -2289,6 +2360,91 @@ function ZonesPanel({ doc, patch, notify, fold, onAdd }: {
  * buttons are here: the order is the *pipeline*, and every table downstream
  * reads its columns from it. A list that sorted itself would put dev after SA
  * and production first. */
+/* The trajectory: today, the steps, the target.
+ *
+ * Next to the environments and for the same reason — both are ordered lists the
+ * whole document reads, and both are declared once here rather than typed again
+ * on every component. Where they differ is what the order *means*: environments
+ * are a pipeline, plateaus are time. */
+function PlateausPanel({ doc, patch, notify, fold, onAdd }: {
+  doc: Architecture; patch: (fn: (d: Architecture) => Architecture) => void;
+  notify: Notify;
+  fold: RailFolds;
+  onAdd: () => void;
+}) {
+  const plateaus = doc.plateaus || [];
+  const steps = summarise(doc);
+
+  const move = (id: string, delta: -1 | 1) => patch(d => {
+    const list = [...(d.plateaus || [])];
+    const at = list.findIndex(p => p.id === id);
+    const to = at + delta;
+    if (at < 0 || to < 0 || to >= list.length) return d;
+    [list[at], list[to]] = [list[to], list[at]];
+    d.plateaus = list;
+    return d;
+  });
+
+  return (
+    <RailSection id="plateaus" label={`Plateaus (${plateaus.length})`}
+      open={fold.isOpen('plateaus')} onToggle={() => fold.toggle('plateaus')}
+      action={
+        <button className="iconbtn" style={{ width: 20, height: 20 }} title="Add plateau"
+          onClick={onAdd}><Icon name="plus" size={13} /></button>
+      }>
+      {!plateaus.length && (
+        <div className="hint" style={{ padding: '2px 6px' }}>
+          Today, the steps, the target — in that order. One document, not one per
+          state: each component then says which plateau it arrives at and which
+          one it is retired at, and the toolbar draws any of them.
+        </div>
+      )}
+      {plateaus.map((p, i) => (
+        <div className="grouprow" key={p.id}>
+          <input value={p.name}
+            onChange={ev => patch(d => {
+              const x = (d.plateaus || []).find(y => y.id === p.id);
+              if (x) x.name = ev.target.value;
+              return d;
+            })} />
+          <span className="count" title="Components standing at this plateau">
+            {steps[i]?.total ?? 0}
+          </span>
+          <button className="iconbtn" style={{ width: 22, height: 22 }} title="Move earlier"
+            disabled={i === 0} onClick={() => move(p.id, -1)}>
+            <Icon name="chevron" size={12} style={{ transform: 'rotate(-90deg)' }} />
+          </button>
+          <button className="iconbtn" style={{ width: 22, height: 22 }} title="Move later"
+            disabled={i === plateaus.length - 1} onClick={() => move(p.id, 1)}>
+            <Icon name="chevron" size={12} style={{ transform: 'rotate(90deg)' }} />
+          </button>
+          <button className="iconbtn" style={{ width: 22, height: 22 }} title="Delete plateau"
+            onClick={() => {
+              notify(`Plateau "${p.name}" deleted`);
+              patch(d => {
+                d.plateaus = (d.plateaus || []).filter(y => y.id !== p.id);
+                /* Plans pointing at it go too. The normaliser would drop them on
+                 * the next read anyway — silently, which is the worse of the
+                 * two, because a component would quietly stop arriving. */
+                d.components.forEach(c => {
+                  if (!c.plan) return;
+                  const kept = { ...c.plan };
+                  (['from', 'to', 'changed'] as const).forEach(k => {
+                    if (kept[k] === p.id) delete kept[k];
+                  });
+                  c.plan = Object.keys(kept).length ? kept : undefined;
+                });
+                return d;
+              });
+            }}>
+            <Icon name="trash" size={12} />
+          </button>
+        </div>
+      ))}
+    </RailSection>
+  );
+}
+
 function EnvironmentsPanel({ doc, patch, notify, fold, onAdd }: {
   doc: Architecture; patch: (fn: (d: Architecture) => Architecture) => void;
   notify: Notify;

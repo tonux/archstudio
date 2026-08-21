@@ -155,8 +155,15 @@ export interface TemplateCompareSection extends TemplateSectionBase {
 export interface TemplateTextSection extends TemplateSectionBase {
   type: 'text'; blocks: { group?: string; title?: L10n; body?: L10n | L10n[] }[];
 }
+/* A capability map carries no authored content: the tree is filled from the
+ * referential at export. It is here so a preset can *declare* one, which is the
+ * only way a chapter can be a real answer rather than an empty box. */
+export interface TemplateCapabilityMapSection extends TemplateSectionBase {
+  type: 'capability-map'; roots: never[];
+}
 
 export type TemplateSection =
+  | TemplateCapabilityMapSection
   | TemplateCardsSection | TemplateTimelineSection | TemplateTableSection
   | TemplateCompareSection | TemplateTextSection;
 

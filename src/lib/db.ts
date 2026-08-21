@@ -10,6 +10,8 @@ import { DatabaseSync } from 'node:sqlite';
 import fs from 'node:fs';
 import path from 'node:path';
 
+import { applyMigrations } from './migrations';
+
 const DB_PATH = process.env.DATABASE_PATH
   ? path.resolve(process.env.DATABASE_PATH)
   : path.join(process.cwd(), 'data', 'studio.db');
@@ -72,6 +74,228 @@ CREATE TABLE IF NOT EXISTS revisions (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_revisions_project ON revisions(project_id, created_at DESC);
+
+-- Identity. Every table here is new rather than a column on an existing one,
+-- which is what lets them land on a database that predates them: the schema
+-- above is re-run per connection and CREATE TABLE IF NOT EXISTS is additive,
+-- while ALTER TABLE would only ever reach a fresh file. See migrations.ts for
+-- when that stops being enough.
+--
+-- A person is a "principal" whether they signed in with a password or arrived
+-- through a proxy that vouched for them, so the two ways of proving it live in
+-- separate tables and neither is required.
+CREATE TABLE IF NOT EXISTS principals (
+  id           TEXT PRIMARY KEY,
+  email        TEXT NOT NULL,
+  name         TEXT NOT NULL,
+  created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+  last_seen_at TEXT
+);
+-- Folded, because "Ada@example.com" and "ada@example.com" are one person and a
+-- proxy is free to send either.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_principals_email ON principals(lower(email));
+
+CREATE TABLE IF NOT EXISTS auth_credentials (
+  principal_id TEXT PRIMARY KEY REFERENCES principals(id) ON DELETE CASCADE,
+  hash         TEXT NOT NULL,
+  updated_at   TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Server-side rather than a signed token in the cookie. A token cannot be taken
+-- away: "remove this person's access" has to mean the next request fails, not
+-- that it fails once the token expires. The database is already here, so the
+-- reason to reach for statelessness is not present either.
+CREATE TABLE IF NOT EXISTS sessions (
+  id           TEXT PRIMARY KEY,
+  principal_id TEXT NOT NULL REFERENCES principals(id) ON DELETE CASCADE,
+  created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+  expires_at   TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_sessions_principal ON sessions(principal_id);
+
+CREATE TABLE IF NOT EXISTS audit_log (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  at           TEXT NOT NULL DEFAULT (datetime('now')),
+  principal_id TEXT,
+  action       TEXT NOT NULL,
+  subject      TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_audit_at ON audit_log(at DESC);
+
+-- Who froze a version. A side table rather than a column on "revisions", for
+-- the reason at the top of this block — and the join is a LEFT one, because
+-- every row written before identity existed has no author and that is a fact
+-- about the row, not a gap to paper over. ON DELETE SET NULL is deliberate:
+-- removing a person must not remove the history of what they did.
+CREATE TABLE IF NOT EXISTS revision_authors (
+  revision_id  TEXT PRIMARY KEY REFERENCES revisions(id) ON DELETE CASCADE,
+  principal_id TEXT REFERENCES principals(id) ON DELETE SET NULL
+);
+
+-- Governance.
+--
+-- A grant is (person, role, scope). Scope is the axis that makes this usable
+-- without naming every project: an architect of the Finance domain is an
+-- architect of every project that domain owns, and nobody has to keep a list.
+CREATE TABLE IF NOT EXISTS roles (
+  principal_id TEXT NOT NULL REFERENCES principals(id) ON DELETE CASCADE,
+  role         TEXT NOT NULL,
+  scope_kind   TEXT NOT NULL,
+  -- Part of the key, so a person can hold the same role in two domains without
+  -- one overwriting the other.
+  --
+  -- Empty string for a global grant, and NOT NULL, because in SQLite two NULLs
+  -- are *distinct* inside a PRIMARY KEY: with NULL here, "grant Ada admin"
+  -- twice would insert two rows and INSERT OR IGNORE would never fire. That is
+  -- the sort of thing nobody notices until a revoke leaves half a grant behind.
+  scope_id     TEXT NOT NULL DEFAULT '',
+  created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (principal_id, role, scope_kind, scope_id)
+);
+CREATE INDEX IF NOT EXISTS idx_roles_principal ON roles(principal_id);
+
+-- Which domain owns a project. A side table rather than a column, for the
+-- reason at the top of the identity block, and the reason a domain-scoped
+-- grant can reach a project at all.
+CREATE TABLE IF NOT EXISTS project_domains (
+  project_id TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+  domain_id  TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_project_domains_domain ON project_domains(domain_id);
+
+-- A proposal is a candidate document: the whole architecture as someone would
+-- like it to be, sitting beside the one that is published.
+--
+-- Whole rather than a patch, deliberately. The reviewer's question is "what
+-- would this change", and the app already answers that better than any patch
+-- format could: diffArchitecture over two documents, in sentences. A patch
+-- would need a second comparison engine and a merge algorithm, and would still
+-- have to be turned back into two documents to be read.
+CREATE TABLE IF NOT EXISTS proposals (
+  id               TEXT PRIMARY KEY,
+  project_id       TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  author_id        TEXT REFERENCES principals(id) ON DELETE SET NULL,
+  -- What the project looked like when the proposal was opened, so a reviewer
+  -- can see what the author actually changed rather than what has drifted
+  -- underneath them.
+  base_revision_id TEXT REFERENCES revisions(id) ON DELETE SET NULL,
+  data             TEXT NOT NULL,
+  status           TEXT NOT NULL DEFAULT 'open',
+  title            TEXT,
+  created_at       TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at       TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_proposals_project ON proposals(project_id, status);
+CREATE INDEX IF NOT EXISTS idx_proposals_author ON proposals(author_id, status);
+
+CREATE TABLE IF NOT EXISTS proposal_reviews (
+  id           TEXT PRIMARY KEY,
+  proposal_id  TEXT NOT NULL REFERENCES proposals(id) ON DELETE CASCADE,
+  reviewer_id  TEXT REFERENCES principals(id) ON DELETE SET NULL,
+  verdict      TEXT NOT NULL,
+  note         TEXT,
+  created_at   TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_proposal_reviews ON proposal_reviews(proposal_id);
+
+-- Where a project sits in the cycle the organisation already runs. No gates
+-- and no state machine: the phase decides which chapters a document is offered
+-- and nothing else. An app that enforced one way of running the ADM would be
+-- wrong everywhere.
+CREATE TABLE IF NOT EXISTS project_adm (
+  project_id TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+  phase      TEXT NOT NULL,
+  iteration  TEXT
+);
+
+-- The Enterprise Continuum, projected onto the folder tree that already
+-- exists. Folders nest and already hold projects, which is the whole reason
+-- this costs one side table rather than a hierarchy of its own.
+CREATE TABLE IF NOT EXISTS folder_kinds (
+  folder_id  TEXT PRIMARY KEY REFERENCES folders(id) ON DELETE CASCADE,
+  continuum  TEXT NOT NULL
+);
+
+-- The enterprise referential.
+--
+-- The point of the whole thing: an application exists *once*, and several
+-- documents cite it. Today the same application drawn in four projects is four
+-- boxes that do not know about each other, and nobody can answer "where is it
+-- used" — which is the question enterprise architecture is for.
+--
+-- Six kinds, not sixty. A closed, small vocabulary someone can hold in their
+-- head beats a faithful metamodel nobody fills in.
+CREATE TABLE IF NOT EXISTS ea_entities (
+  id         TEXT PRIMARY KEY,
+  kind       TEXT NOT NULL,
+  -- The reference an organisation already uses for this thing: APP-0142, the
+  -- CMDB id. Optional, because not every capability has one, and unique per
+  -- kind when present so an import can match on it instead of on a name.
+  code       TEXT,
+  name       TEXT NOT NULL,
+  -- Capabilities nest (L0/L1/L2), and so do domains. SET NULL rather than
+  -- CASCADE: deleting a parent must not silently delete a subtree.
+  parent_id  TEXT REFERENCES ea_entities(id) ON DELETE SET NULL,
+  -- technology-standard only: adopt / trial / hold / retire.
+  status     TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_ea_entities_kind ON ea_entities(kind, name);
+CREATE INDEX IF NOT EXISTS idx_ea_entities_parent ON ea_entities(parent_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_ea_entities_code
+  ON ea_entities(kind, lower(code)) WHERE code IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS ea_entity_texts (
+  entity_id   TEXT NOT NULL REFERENCES ea_entities(id) ON DELETE CASCADE,
+  lang        TEXT NOT NULL CHECK(lang IN ('en', 'fr')),
+  description TEXT NOT NULL,
+  PRIMARY KEY (entity_id, lang)
+);
+
+CREATE TABLE IF NOT EXISTS ea_entity_props (
+  entity_id TEXT NOT NULL REFERENCES ea_entities(id) ON DELETE CASCADE,
+  key       TEXT NOT NULL,
+  value     TEXT NOT NULL,
+  PRIMARY KEY (entity_id, key)
+);
+
+CREATE TABLE IF NOT EXISTS ea_relations (
+  id         TEXT PRIMARY KEY,
+  kind       TEXT NOT NULL,
+  from_id    TEXT NOT NULL REFERENCES ea_entities(id) ON DELETE CASCADE,
+  to_id      TEXT NOT NULL REFERENCES ea_entities(id) ON DELETE CASCADE,
+  note       TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_ea_relations_edge ON ea_relations(kind, from_id, to_id);
+CREATE INDEX IF NOT EXISTS idx_ea_relations_from ON ea_relations(from_id);
+CREATE INDEX IF NOT EXISTS idx_ea_relations_to ON ea_relations(to_id);
+
+-- The index, and only the index.
+--
+-- The rule to keep: the blob in projects.data is the truth, this table is
+-- derived from it and can be thrown away and rebuilt by reindex(). It exists so
+-- "who cites this entity" is a query instead of a scan of every document.
+CREATE TABLE IF NOT EXISTS project_entity_links (
+  project_id   TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  entity_id    TEXT NOT NULL REFERENCES ea_entities(id) ON DELETE CASCADE,
+  component_id TEXT NOT NULL,
+  role         TEXT NOT NULL,
+  PRIMARY KEY (project_id, entity_id, component_id, role)
+);
+CREATE INDEX IF NOT EXISTS idx_pel_entity ON project_entity_links(entity_id);
+
+-- Also derived. listProjects() used to parse every document to count its
+-- components, which is correct at twenty projects and wrong at five hundred.
+-- The canary is general: as soon as an answer needs to read every blob, it
+-- needs an index instead.
+CREATE TABLE IF NOT EXISTS project_stats (
+  project_id      TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+  component_count INTEGER NOT NULL DEFAULT 0,
+  group_count     INTEGER NOT NULL DEFAULT 0,
+  updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+);
 
 CREATE TABLE IF NOT EXISTS lego_catalog_versions (
   version TEXT PRIMARY KEY,
@@ -186,12 +410,15 @@ CREATE INDEX IF NOT EXISTS idx_lego_dependencies_from ON lego_dependencies(catal
 declare global {
   // eslint-disable-next-line no-var
   var __studioDb: DatabaseSync | undefined;
+  // eslint-disable-next-line no-var
+  var __studioMigrated: boolean | undefined;
 }
 
 function open(): DatabaseSync {
   fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
   const db = new DatabaseSync(DB_PATH);
   db.exec(SCHEMA);
+  migrateOnce(db);
   return db;
 }
 
@@ -200,7 +427,20 @@ function open(): DatabaseSync {
  * so a new table like `lego_dependencies` would otherwise never appear. */
 function ensureSchema(database: DatabaseSync): DatabaseSync {
   database.exec(SCHEMA);
+  migrateOnce(database);
   return database;
+}
+
+/* Everything above is CREATE IF NOT EXISTS, which is cheap enough to re-run per
+ * connection. Migrations are not: they are a read of the ledger, and on the
+ * first call a write lock. ensureSchema() runs on *every* connect(), so without
+ * this memo a settled database would pay that read on every request. Cached
+ * beside the handle, and for the same reason — HMR replaces the module, not
+ * globalThis. */
+function migrateOnce(database: DatabaseSync): void {
+  if (globalThis.__studioMigrated) return;
+  applyMigrations(database);
+  globalThis.__studioMigrated = true;
 }
 
 /* Cached on globalThis so Next's dev-mode module reloading does not open a new
@@ -233,6 +473,38 @@ export const db: DatabaseSync = new Proxy({} as DatabaseSync, {
   has: (_target, prop) => prop in (connect() as unknown as object),
   getPrototypeOf: () => Object.getPrototypeOf(connect())
 });
+
+/* SQLite has no nested transactions, and the operations in this codebase
+ * genuinely nest: approving a proposal is `updateProject` followed by
+ * `freezeVersion`, and `updateProject` wants a transaction of its own so the
+ * document and its derived index move together.
+ *
+ * So the depth is counted and only the outermost call issues BEGIN and COMMIT.
+ * Savepoints would give partial rollback, which sounds better and is not what
+ * anyone wants here: if the inner half of publishing a proposal fails, the
+ * outer half must not stand either.
+ *
+ * Not on globalThis: this is per-call-stack state, and the whole point is that
+ * it is scoped to one synchronous operation. Awaiting inside `fn` would break
+ * it — none of the callers do, and none should. */
+let depth = 0;
+
+export function transaction<T>(fn: () => T): T {
+  if (depth > 0) { depth++; try { return fn(); } finally { depth--; } }
+
+  db.exec('BEGIN IMMEDIATE');
+  depth = 1;
+  try {
+    const out = fn();
+    db.exec('COMMIT');
+    return out;
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
+  } finally {
+    depth = 0;
+  }
+}
 
 export const dbPath = DB_PATH;
 

@@ -18,7 +18,7 @@ import type {
 export type ChangeKind = 'added' | 'removed' | 'changed';
 export type ChangeArea =
   | 'component' | 'dependency' | 'layer' | 'scope' | 'zone' | 'flow' | 'section' | 'stack'
-  | 'document';
+  | 'referential' | 'document';
 
 export interface Change {
   kind: ChangeKind;
@@ -48,6 +48,7 @@ export const AREA_LABELS: Record<ChangeArea, string> = {
   flow: 'Flows',
   section: 'Sections',
   stack: 'Technology table',
+  referential: 'Enterprise referential',
   document: 'Document'
 };
 
@@ -88,7 +89,13 @@ const COMPONENT_FIELDS: { key: keyof Component; label: string; list?: true }[] =
   { key: 'marks', label: 'security marks', list: true },
   { key: 'tech', label: 'technologies', list: true },
   { key: 'features', label: 'responsibilities', list: true },
-  { key: 'notes', label: 'notes', list: true }
+  { key: 'notes', label: 'notes', list: true },
+  { key: 'archimate', label: 'ArchiMate type' },
+  /* Compared as a value rather than spelled out field by field: which
+   * capabilities a box carries is one decision, and "capabilities, application"
+   * would read as two. What each id *means* is reported once, under the
+   * referential, where the names live. */
+  { key: 'ea', label: 'referential links' }
 ];
 
 function componentChanges(from: Architecture, to: Architecture): Change[] {
@@ -388,6 +395,47 @@ function stackChanges(from: Architecture, to: Architecture): Change[] {
   return out;
 }
 
+/* ------------------------------------------------------------ referential */
+
+/* What the document quotes from the enterprise referential.
+ *
+ * Reported separately from the components that cite it, because a rename in the
+ * referential changes every citing document at once and is not an edit anyone
+ * made *here*. Seeing "Billing → Invoicing" under its own heading is the
+ * difference between "someone reorganised the capability map" and "six
+ * components were edited". */
+function referentialChanges(from: Architecture, to: Architecture): Change[] {
+  const before = new Map((from.imprint?.entities || []).map(e => [e.id, e]));
+  const after = new Map((to.imprint?.entities || []).map(e => [e.id, e]));
+  const out: Change[] = [];
+
+  const label = (e: { name: string; code?: string }) => (e.code ? `${e.name} (${e.code})` : e.name);
+
+  before.forEach((e, id) => {
+    if (!after.has(id)) {
+      out.push({ kind: 'removed', area: 'referential', label: label(e), detail: e.kind });
+    }
+  });
+  after.forEach((e, id) => {
+    if (!before.has(id)) {
+      out.push({ kind: 'added', area: 'referential', label: label(e), detail: e.kind });
+    }
+  });
+  after.forEach((b, id) => {
+    const a = before.get(id);
+    if (!a) return;
+    const bits: string[] = [];
+    if (a.name !== b.name) bits.push(`renamed from ${a.name}`);
+    if (!textSame(a.code, b.code)) bits.push(`code: ${a.code || 'none'} → ${b.code || 'none'}`);
+    if (a.parent !== b.parent) bits.push('moved in the tree');
+    if (bits.length) {
+      out.push({ kind: 'changed', area: 'referential', label: label(b), detail: bits.join(', ') });
+    }
+  });
+
+  return out;
+}
+
 /* ---------------------------------------------------------------- document */
 
 const META_LABELS: Record<string, string> = {
@@ -435,6 +483,7 @@ export function diffArchitecture(from: Architecture, to: Architecture): Diff {
     ...flowChanges(from, to),
     ...sectionChanges(from, to),
     ...stackChanges(from, to),
+    ...referentialChanges(from, to),
     ...documentChanges(from, to)
   ];
 

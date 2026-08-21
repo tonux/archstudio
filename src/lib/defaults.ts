@@ -2,7 +2,11 @@ import { canonicalise, cleanDeployedOn } from './deployment';
 import { envEntryIsEmpty } from './environments';
 import { isLifecycle } from './lifecycle';
 import { normalizeMarks } from './marks';
+import { normalizeMotivation } from './motivation';
 import { isZoneKind } from './zones';
+import { isArchimateType } from './archimate/profile';
+import { normalizeImprint } from './ea/imprint';
+import { normalizePlan, normalizePlateaus } from './plateau';
 import { LINK_KINDS, PROTOCOL_LABEL_MODES, linkIsEmpty } from './links';
 import { displayLayerLabel } from './layers';
 import type {
@@ -220,6 +224,7 @@ export function normalizeArchitecture(input: Partial<Architecture>): Architectur
     }),
     zones: normalizeZones(input.zones),
     environments: normalizeEnvironments(input.environments),
+    plateaus: normalizePlateaus((input as { plateaus?: unknown }).plateaus),
     components: input.components || [],
     technologies: input.technologies || [],
     flows: input.flows || [],
@@ -230,6 +235,7 @@ export function normalizeArchitecture(input: Partial<Architecture>): Architectur
   const layerIds = new Set(doc.layers.map(l => l.id));
   const zoneIds = new Set(doc.zones.map(z => z.id));
   const envIds = new Set(doc.environments.map(e => e.id));
+  const plateauIds = new Set((doc.plateaus || []).map(p => p.id));
   const compIds = new Set(doc.components.map(c => c.id));
 
   doc.components = doc.components.map(c => {
@@ -251,9 +257,28 @@ export function normalizeArchitecture(input: Partial<Architecture>): Architectur
        * silently draw as "already there", which is the one reading a transition
        * diagram must never give by accident. */
       state: isLifecycle(c.state) ? c.state : undefined,
+      /* Same reasoning as `state`, one step further out: an invented element
+       * type would not fall through a switch here, it would ride into an
+       * exported model and be rejected by the importer — or worse, accepted as
+       * something else. A closed set, checked on the way in. */
+      archimate: isArchimateType(c.archimate) ? c.archimate : undefined,
+      plan: normalizePlan(c.plan, plateauIds),
       marks: normalizeMarks(c.marks),
       deps,
-      links: normalizeLinks(c.links, deps)
+      /* A link's own plan gets the same treatment as the component's: a
+       * reference to a plateau this document does not declare is dropped.
+       *
+       * The key is *omitted* rather than set to undefined. `JSON.stringify`
+       * treats the two the same, but nothing else does — a link that never had
+       * a plan must come out of the normaliser identical to the one that went
+       * in, or every snapshot comparison in the codebase starts reporting an
+       * edit nobody made. */
+      links: normalizeLinks(c.links, deps)?.map(l => {
+        const plan = normalizePlan(l.plan, plateauIds);
+        if (plan) return { ...l, plan };
+        const { plan: _drop, ...rest } = l;
+        return rest;
+      })
     };
   });
 
@@ -262,6 +287,27 @@ export function normalizeArchitecture(input: Partial<Architecture>): Architectur
    * field that splits under case is a filter that hides half of what it says it
    * is showing. */
   canonicalise(doc.components);
+
+  /* Why the architecture is the way it is. After the components, because a
+   * motivation item points at them and a pointer to something that is gone has
+   * to go with it. */
+  doc.motivation = normalizeMotivation(
+    (input as { motivation?: unknown }).motivation, compIds,
+    new Set(((input as { imprint?: { entities?: { id: string }[] } }).imprint?.entities || [])
+      .map(e => e.id))
+  );
+  if (!doc.motivation) delete doc.motivation;
+
+  /* Absent, not empty. Every optional field in this format holds to the same
+   * invariant: a document that describes no trajectory exports exactly as it
+   * did before plateaus existed. `zones` and `environments` predate the rule
+   * and stay at `[]`; nothing new gets to add a key nobody asked for. */
+  if (!doc.plateaus?.length) delete doc.plateaus;
+
+  /* Citations of the enterprise referential, and the imprint that backs them.
+   * After the components are settled, because it prunes imprint entries nobody
+   * cites — and before the flows, which do not touch it. */
+  normalizeImprint(doc);
 
   /* A step pointing at a deleted component would crash the viewer, so those go.
    * A flow with no steps left is kept: it is almost always one being authored,
@@ -420,6 +466,8 @@ export const SECTION_TYPES: { type: SectionType; label: string; blurb: string }[
   { type: 'timeline', label: 'Timeline',  blurb: 'Dated phases down a line, with optional cards alongside.' },
   { type: 'table',    label: 'Table',     blurb: 'Free-form rows and columns, e.g. risks and their mitigations.' },
   { type: 'compare',  label: 'Compare',   blurb: 'Two or more poles side by side, plus a comparison table.' },
+  { type: 'capability-map', label: 'Capability map',
+    blurb: 'The capability tree as nested boxes, with how many applications carry each one. Filled from the referential at export.' },
   { type: 'text',     label: 'Text',      blurb: 'Prose blocks — the least structured of the five.' }
 ];
 
@@ -433,6 +481,10 @@ export function blankSection(type: SectionType, taken: Iterable<string>): Sectio
     case 'table':    return { ...base, columns: [{ label: 'Column' }, { label: 'Column' }], rows: [] };
     case 'compare':  return { ...base, columns: [] };
     case 'text':     return { ...base, blocks: [] };
+    /* Authored as a question rather than as content: the tree lives in the
+     * referential, and the answer is frozen into the section at export. */
+    case 'capability-map':
+      return { ...base, roots: [], computed: { query: 'capability-map' } };
   }
 }
 

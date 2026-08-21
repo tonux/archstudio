@@ -1405,3 +1405,28 @@ a.footbtn { border-bottom: 1px solid var(--line-2); }
 a.footbtn:hover { border-bottom-color: var(--ink-3); }
 .footbtn svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.9; }
 .footnote { flex-basis: 100%; font-size: 11px; color: var(--ink-3); }
+
+/* An answer to a cross-cutting question, on screen.
+ *
+ * The printable document has its own table styling in document.css, and the
+ * two are deliberately not shared: that one is tuned for paper at 1:1 and this
+ * one for a screen that scrolls. What they do share is the tokens, so the same
+ * answer reads as the same answer in both places.
+ *
+ * The header sticks because these tables get long — a hundred rows of
+ * "who still runs Java 8" is a good outcome, not an edge case. */
+.tbl { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.tbl th, .tbl td {
+  text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line-2);
+  vertical-align: top;
+}
+.tbl th {
+  position: sticky; top: 0; background: var(--panel); z-index: 1;
+  font-weight: 600; color: var(--ink-2); font-size: 11px;
+  text-transform: uppercase; letter-spacing: .04em;
+  border-bottom-color: var(--line);
+}
+.tbl tbody tr:hover td { background: var(--panel-3); }
+/* The last column is usually the long one — a dependency path, a list of
+   applications — so it is the one allowed to wrap. */
+.tbl td:last-child { color: var(--ink-2); }

@@ -11,7 +11,9 @@ import { useAsk } from './Ask';
 import { Lockup } from './Brand';
 import { AnalyseNewDialog, useAiStatus } from './Analyse';
 import { SettingsDialog } from './Settings';
+import { AccountsDialog } from './Accounts';
 import { api } from '@/lib/api';
+import { ADM_BLURBS, ADM_LABELS, ADM_PHASES, type AdmPhase } from '@/lib/adm';
 import { FOLDER_COLORS, PALETTE } from '@/lib/defaults';
 /* `templates/types` carries no template bodies — importing the registry here
  * would ship every template's editorial content to the browser. */
@@ -32,7 +34,7 @@ export default function Workspace({
     Object.fromEntries(initialFolders.map(f => [f.id, true])));
   const [query, setQuery] = useState('');
   const [dragging, setDragging] = useState<ProjectSummary | null>(null);
-  const [dialog, setDialog] = useState<null | 'new' | 'import' | 'analyse' | 'settings'>(null);
+  const [dialog, setDialog] = useState<null | 'new' | 'import' | 'analyse' | 'settings' | 'people'>(null);
   /* Null until the server answers, false on an install with no API key — the
    * entry point is absent rather than disabled, because a button that only
    * exists to explain why it cannot work is worse than no button. */
@@ -193,9 +195,33 @@ export default function Workspace({
               title="Model provider for document analysis">
               <Icon name="cog" size={15} />Settings
             </button>
+            {/* Next to Settings, and separate from it: that one decides which
+                model reads your documents, this one decides who does. */}
+            <button className="footbtn" onClick={() => setDialog('people')}
+              title="Who can open this install, and who they are">
+              <Icon name="users" size={15} />People
+            </button>
             {/* The format is the thing nobody can guess from the toolbar, so
                 the way into the explainer sits next to Settings rather than
                 behind a question mark in a corner. */}
+            {/* The referential is workspace-level, not project-level: an
+                application belongs to the organisation, not to one diagram. */}
+            <a className="footbtn" href="/ea"
+              title="Applications, capabilities, actors and standards — each of them once">
+              <Icon name="layers" size={15} />Referential
+            </a>
+            <a className="footbtn" href="/reviews"
+              title="Changes somebody proposed and cannot publish themselves">
+              <Icon name="scan" size={15} />Reviews
+            </a>
+            <a className="footbtn" href="/compliance"
+              title="Where the referential and the drawings disagree with the rules">
+              <Icon name="shield" size={15} />Compliance
+            </a>
+            <a className="footbtn" href="/analysis"
+              title="Impact, capability coverage and technology usage, across every project">
+              <Icon name="chart" size={15} />Analysis
+            </a>
             <a className="footbtn" href="/how-it-works"
               title="Layers, scopes, components, dependencies and flows — on one worked example">
               <Icon name="eye" size={15} />How it works
@@ -288,6 +314,7 @@ export default function Workspace({
           onCreated={id => router.push(`/projects/${id}`)}
         />
       )}
+      {dialog === 'people' && <AccountsDialog onClose={() => setDialog(null)} />}
       {dialog === 'settings' && (
         <SettingsDialog onClose={() => setDialog(null)}
           reason={ai && !ai.enabled
@@ -468,6 +495,7 @@ function NewProjectDialog({ folderId, busy, setBusy, onClose, onCreated }: {
   const [target, setTarget] = useState<CloudTarget>('agnostic');
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
+  const [phase, setPhase] = useState<AdmPhase | ''>('');
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -493,7 +521,8 @@ function NewProjectDialog({ folderId, busy, setBusy, onClose, onCreated }: {
           name: name.trim(),
           description: description.trim() || undefined,
           folderId,
-          ...(chosen ? { templateId: chosen.id, target, lang } : {})
+          ...(chosen ? { templateId: chosen.id, target, lang } : {}),
+          ...(phase ? { phase, lang } : {})
         })
       });
       onCreated(p.id);
@@ -600,6 +629,25 @@ function NewProjectDialog({ folderId, busy, setBusy, onClose, onCreated }: {
             <label className="field"><span>Description (optional)</span>
               <input className="input" value={description} onChange={e => setDescription(e.target.value)}
                 placeholder={chosen ? chosen.tagline[lang] : 'What this system does, in one line'} />
+            </label>
+
+            {/* Optional, and last, because most projects are a drawing rather
+                than a TOGAF deliverable. Saying which phase this is in fills the
+                document with the chapters that phase expects — cumulatively, so
+                a project in B still carries the vision it came from. */}
+            <label className="field"><span>TOGAF phase (optional)</span>
+              <select className="select" value={phase}
+                onChange={e => setPhase(e.target.value as AdmPhase | '')}>
+                <option value="">No outline — just a drawing</option>
+                {ADM_PHASES.map(p => (
+                  <option key={p} value={p}>{ADM_LABELS[p]}</option>
+                ))}
+              </select>
+              <div className="hint">
+                {phase
+                  ? ADM_BLURBS[phase] + ' The document gets this phase’s chapters and every earlier one.'
+                  : 'Leave this alone unless your organisation runs the ADM.'}
+              </div>
             </label>
 
             {chosen && (

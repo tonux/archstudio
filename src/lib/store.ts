@@ -1,4 +1,6 @@
-import { db, uid, now, plain, plainAll } from './db';
+import { db, transaction, uid, now, plain, plainAll } from './db';
+import { setRevisionAuthor } from './auth/store';
+import { hydrateImprint, reindexProject } from './ea/hydrate';
 import { blankArchitecture, normalizeArchitecture } from './defaults';
 import { RESTORE_LABEL, revisionKind } from './versions';
 import type {
@@ -14,6 +16,8 @@ const REVISION_INTERVAL_MS = 5 * 60_000;
  * order becomes arbitrary. `rowid` is monotonic per insert and breaks the tie
  * the way a reader expects: last written, first shown. */
 const NEWEST_FIRST = 'created_at DESC, rowid DESC';
+/** The same ordering, qualified, for the one query that joins another table. */
+const NEWEST_FIRST_R = 'r.created_at DESC, r.rowid DESC';
 
 /* `RESTORE_LABEL` is imported rather than declared: it is one of the two strings
  * that decide what kind of row a revision is, and both live in versions.ts so
@@ -110,21 +114,37 @@ const projectRow = (r: unknown): ProjectRecord & { data?: string } => {
   };
 };
 
+/** The workspace listing.
+ *
+ *  Reads the derived counts rather than parsing every document. That mattered
+ *  less at twenty projects than it does at five hundred, and it is the general
+ *  canary: as soon as an answer needs every blob, it needs an index instead.
+ *
+ *  The LEFT JOIN and the fallback are not belt-and-braces — a project written
+ *  before `project_stats` existed has no row, and the honest reading of a
+ *  missing statistic is zero rather than a crash. `reindexAll()` fills them in. */
 export function listProjects(): ProjectSummary[] {
-  const rows = db.prepare(
-    'SELECT id, name, description, accent, position, folder_id, data, created_at, updated_at FROM projects ORDER BY position, name'
-  ).all();
-  return rows.map(r => {
-    const p = projectRow(r);
-    let componentCount = 0, groupCount = 0;
-    try {
-      const doc = JSON.parse(p.data as string) as Architecture;
-      componentCount = doc.components?.length ?? 0;
-      groupCount = doc.groups?.length ?? 0;
-    } catch { /* a corrupt document should not break the list */ }
-    const { data: _drop, ...rest } = p;
-    return { ...rest, componentCount, groupCount };
-  });
+  const rows = db.prepare(`
+    SELECT p.id, p.name, p.description, p.accent, p.position, p.folder_id,
+           p.created_at, p.updated_at,
+           s.component_count, s.group_count
+    FROM projects p
+    LEFT JOIN project_stats s ON s.project_id = p.id
+    ORDER BY p.position, p.name
+  `).all();
+
+  return plainAll<Record<string, unknown>>(rows).map(o => ({
+    id: o.id as string,
+    name: o.name as string,
+    description: (o.description ?? null) as string | null,
+    accent: (o.accent ?? null) as string | null,
+    position: Number(o.position ?? 0),
+    folderId: (o.folder_id ?? null) as string | null,
+    createdAt: o.created_at as string,
+    updatedAt: o.updated_at as string,
+    componentCount: Number(o.component_count ?? 0),
+    groupCount: Number(o.group_count ?? 0)
+  }));
 }
 
 export function getProject(id: string): ProjectWithData | null {
@@ -140,20 +160,29 @@ export function createProject(input: {
   data?: Partial<Architecture>;
 }): ProjectWithData {
   const id = uid('p_');
-  const doc = input.data
-    ? normalizeArchitecture(input.data)
-    : blankArchitecture(input.name);
-  doc.meta.name = doc.meta.name || input.name;
+  /* Deliberately *not* normalised here. Normalisation drops any referential
+   * citation the document's imprint does not back up — and an incoming document
+   * has no imprint yet, so normalising first would delete every citation a
+   * moment before hydration could justify it. Hydrate, then normalise. */
+  const doc = (input.data ?? blankArchitecture(input.name)) as Architecture;
 
   const max = plain<{ m: number | null }>(
     db.prepare('SELECT MAX(position) AS m FROM projects WHERE folder_id IS ?').get(input.folderId ?? null)
   ).m ?? -1;
 
+  /* Hydrate before normalising, always in that order: hydration copies in what
+   * the referential knows, normalisation then drops any citation the hydration
+   * could not back up. Doing it the other way round would drop every citation
+   * on a document that arrived from an import with no imprint. */
+  const stored = normalizeArchitecture(hydrateImprint(doc));
+  stored.meta.name = stored.meta.name || input.name;
+
   db.prepare(
     'INSERT INTO projects (id, name, description, accent, position, folder_id, data) VALUES (?, ?, ?, ?, ?, ?, ?)'
   ).run(id, input.name, input.description ?? null, input.accent ?? null,
-        max + 1, input.folderId ?? null, JSON.stringify(doc));
+        max + 1, input.folderId ?? null, JSON.stringify(stored));
 
+  reindexProject(id, stored);
   return getProject(id)!;
 }
 
@@ -162,12 +191,14 @@ export function updateProject(
   patch: {
     name?: string; description?: string | null; accent?: string | null;
     folderId?: string | null; position?: number; data?: Architecture;
-  }
+  },
+  /** Who is making the edit, when the install knows. */
+  actor?: string | null
 ): ProjectWithData | null {
   const current = getProject(id);
   if (!current) return null;
 
-  if (patch.data) maybeSnapshot(id, current.data);
+  if (patch.data) maybeSnapshot(id, current.data, actor);
 
   const sets: string[] = [];
   const vals: (string | number | null)[] = [];
@@ -176,13 +207,23 @@ export function updateProject(
   if (patch.accent !== undefined) { sets.push('accent = ?'); vals.push(patch.accent); }
   if (patch.folderId !== undefined) { sets.push('folder_id = ?'); vals.push(patch.folderId); }
   if (patch.position !== undefined) { sets.push('position = ?'); vals.push(patch.position); }
+  let stored: Architecture | null = null;
   if (patch.data !== undefined) {
+    stored = normalizeArchitecture(hydrateImprint(patch.data));
     sets.push('data = ?');
-    vals.push(JSON.stringify(normalizeArchitecture(patch.data)));
+    vals.push(JSON.stringify(stored));
   }
   if (!sets.length) return current;
   sets.push('updated_at = ?'); vals.push(now());
-  db.prepare(`UPDATE projects SET ${sets.join(', ')} WHERE id = ?`).run(...vals, id);
+
+  /* The blob and its index move together or not at all. Without the
+   * transaction, a crash between the two leaves the index asserting a citation
+   * the document no longer makes — and the whole arrangement rests on the index
+   * being derivable from the blob. */
+  transaction(() => {
+    db.prepare(`UPDATE projects SET ${sets.join(', ')} WHERE id = ?`).run(...vals, id);
+    if (stored) reindexProject(id, stored);
+  });
   return getProject(id);
 }
 
@@ -204,11 +245,21 @@ export function duplicateProject(id: string): ProjectWithData | null {
 
 /* ---------------------------------------------------------------- revisions */
 
-/** Write a snapshot of `document` and prune the project back to the cap. */
-function writeSnapshot(projectId: string, document: Architecture, label: string | null): string {
+/** Write a snapshot of `document` and prune the project back to the cap.
+ *
+ *  `actor` is threaded down from the route handler rather than read from an
+ *  ambient context. Reading it here would mean this synchronous function had to
+ *  reach `cookies()`, which is async — and the alternative, a module-level
+ *  "current user", is only safe until two requests interleave on an await. Two
+ *  route handlers pass it and everything else defaults to null, which is the
+ *  honest value for a snapshot nobody signed. */
+function writeSnapshot(
+  projectId: string, document: Architecture, label: string | null, actor?: string | null
+): string {
   const id = uid('r_');
   db.prepare('INSERT INTO revisions (id, project_id, data, label) VALUES (?, ?, ?, ?)')
     .run(id, projectId, JSON.stringify(document), label);
+  setRevisionAuthor(id, actor ?? null);
 
   /* Only unlabelled snapshots are pruned. A checkpoint someone named — "sent to
    * the client", "before the Azure rewrite" — is the one thing in this table
@@ -222,7 +273,7 @@ function writeSnapshot(projectId: string, document: Architecture, label: string 
   return id;
 }
 
-function maybeSnapshot(projectId: string, previous: Architecture): void {
+function maybeSnapshot(projectId: string, previous: Architecture, actor?: string | null): void {
   const last = db.prepare(
     `SELECT created_at FROM revisions WHERE project_id = ? ORDER BY ${NEWEST_FIRST} LIMIT 1`
   ).get(projectId) as { created_at?: string } | undefined;
@@ -232,14 +283,16 @@ function maybeSnapshot(projectId: string, previous: Architecture): void {
     if (age < REVISION_INTERVAL_MS) return;
   }
 
-  writeSnapshot(projectId, previous, null);
+  writeSnapshot(projectId, previous, null, actor);
 }
 
 /** Snapshot the project as it stands now, on demand and whatever the interval. */
-export function createRevision(projectId: string, label?: string): RevisionRecord | null {
+export function createRevision(
+  projectId: string, label?: string, actor?: string | null
+): RevisionRecord | null {
   const current = getProject(projectId);
   if (!current) return null;
-  const id = writeSnapshot(projectId, current.data, label?.trim() || null);
+  const id = writeSnapshot(projectId, current.data, label?.trim() || null, actor);
   return listRevisions(projectId).find(r => r.id === id) ?? null;
 }
 
@@ -257,7 +310,7 @@ export function createRevision(projectId: string, label?: string): RevisionRecor
  *  freeze and worth keeping; the version's own snapshot is written after it, so
  *  it is the newest row and the one the panel opens on. */
 export function freezeVersion(
-  projectId: string, version: string, label?: string
+  projectId: string, version: string, label?: string, actor?: string | null
 ): RevisionRecord | null {
   const current = getProject(projectId);
   if (!current) return null;
@@ -267,16 +320,23 @@ export function freezeVersion(
     ? { ...current.data, meta: { ...current.data.meta, version: number } }
     : current.data;
 
-  const saved = updateProject(projectId, { data });
+  const saved = updateProject(projectId, { data }, actor);
   if (!saved) return null;
 
-  const id = writeSnapshot(projectId, saved.data, label?.trim() || null);
+  const id = writeSnapshot(projectId, saved.data, label?.trim() || null, actor);
   return listRevisions(projectId).find(r => r.id === id) ?? null;
 }
 
 export function listRevisions(projectId: string): RevisionRecord[] {
+  /* LEFT JOIN, not JOIN: every row written before identity existed has no
+   * author, and so does every snapshot taken by an install running with
+   * authentication off. That is a fact about the row, not a gap to hide. */
   const rows = db.prepare(
-    `SELECT id, project_id, label, created_at, data FROM revisions WHERE project_id = ? ORDER BY ${NEWEST_FIRST}`
+    `SELECT r.id, r.project_id, r.label, r.created_at, r.data, p.name AS author
+     FROM revisions r
+     LEFT JOIN revision_authors ra ON ra.revision_id = r.id
+     LEFT JOIN principals p ON p.id = ra.principal_id
+     WHERE r.project_id = ? ORDER BY ${NEWEST_FIRST_R}`
   ).all(projectId);
   return plainAll<Record<string, unknown>>(rows)
     .map(o => {
@@ -294,7 +354,8 @@ export function listRevisions(projectId: string): RevisionRecord[] {
       return {
         id: o.id as string, projectId: o.project_id as string,
         label, createdAt: o.created_at as string,
-        componentCount, version, kind: revisionKind(label)
+        componentCount, version, kind: revisionKind(label),
+        author: (o.author ?? null) as string | null
       };
     });
 }
@@ -318,7 +379,9 @@ export function deleteRevision(projectId: string, revisionId: string): void {
   db.prepare('DELETE FROM revisions WHERE id = ? AND project_id = ?').run(revisionId, projectId);
 }
 
-export function restoreRevision(projectId: string, revisionId: string): ProjectWithData | null {
+export function restoreRevision(
+  projectId: string, revisionId: string, actor?: string | null
+): ProjectWithData | null {
   const data = getRevisionData(projectId, revisionId);
   if (!data) return null;
 
@@ -328,7 +391,7 @@ export function restoreRevision(projectId: string, revisionId: string): ProjectW
    * exactly when a restore is most likely to be a misclick. */
   const current = getProject(projectId);
   if (current) {
-    writeSnapshot(projectId, current.data, RESTORE_LABEL);
+    writeSnapshot(projectId, current.data, RESTORE_LABEL, actor);
     db.prepare(
       `DELETE FROM revisions WHERE project_id = ? AND label = ? AND id NOT IN
        (SELECT id FROM revisions WHERE project_id = ? AND label = ?
@@ -336,7 +399,7 @@ export function restoreRevision(projectId: string, revisionId: string): ProjectW
     ).run(projectId, RESTORE_LABEL, projectId, RESTORE_LABEL, RESTORE_CAP);
   }
 
-  return updateProject(projectId, { data });
+  return updateProject(projectId, { data }, actor);
 }
 
 /* -------------------------------------------------------------------- seed */

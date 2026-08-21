@@ -36,7 +36,9 @@ import {
   zonePad, zoneSvg, zonesInUse, type BandPlan, type Box
 } from '@/lib/zones';
 import { anchor, buildOutline, supportLayerId, toc, type DocBody, type DocPart } from '@/lib/document/plan';
+import { columnsFor } from '@/lib/views/capability-map';
 import type {
+  CapabilityMapSection, CapabilityNode,
   Architecture, CardItem, CardsSection, CompareSection, Component, Environment, Flow,
   ProjectWithData, Section, TableSection, TextSection, TimelineSection
 } from '@/lib/types';
@@ -751,8 +753,51 @@ function SectionBody({ doc, section }: { doc: Architecture; section: Section }) 
     case 'table': return <FreeTable section={section as TableSection} />;
     case 'compare': return <Compare doc={doc} section={section as CompareSection} />;
     case 'text': return <TextBlocks doc={doc} section={section as TextSection} />;
+    case 'capability-map':
+      return <CapabilityMap roots={(section as CapabilityMapSection).roots || []} />;
     default: return null;
   }
+}
+
+/* The capability map, on paper.
+ *
+ * The third hand-written copy of this layout — after `viewer/engine.js` and the
+ * shared column rule in `src/lib/views/capability-map.ts` — and the one that
+ * has to survive a page break, which is why every box carries
+ * `break-inside: avoid` rather than being positioned.
+ *
+ * `columnsFor` is imported rather than reimplemented: the printed map and the
+ * one that was approved on screen must be the same drawing, and two column
+ * rules that drifted apart would make them different documents. */
+function CapabilityMap({ roots }: { roots: CapabilityNode[] }) {
+  if (!roots.length) return null;
+  return (
+    <div className="capmap" style={{ ['--capcols' as string]: columnsFor(roots) }}>
+      {roots.map((r, i) => <CapabilityBox key={i} node={r} depth={0} />)}
+    </div>
+  );
+}
+
+function CapabilityBox({ node, depth }: { node: CapabilityNode; depth: number }) {
+  const kids = node.children || [];
+  const n = typeof node.count === 'number' ? node.count : null;
+  /* Three states, not a gradient — same reasoning as the viewer: a ramp would
+   * invite reading a 4 as worse than a 3, which it is not. */
+  const heat = n === null ? '' : n === 0 ? ' cap-gap' : n >= 3 ? ' cap-many' : ' cap-ok';
+  return (
+    <div className={`capbox d${Math.min(depth, 3)}${heat}`}>
+      <div className="caphead">
+        <span className="capname">{node.name}</span>
+        {node.code && <span className="capcode mono">{node.code}</span>}
+        {n !== null && <span className="capcount">{n}</span>}
+      </div>
+      {kids.length > 0 && (
+        <div className="capkids">
+          {kids.map((k, i) => <CapabilityBox key={i} node={k} depth={depth + 1} />)}
+        </div>
+      )}
+    </div>
+  );
 }
 
 /* Every card carries a scope colour, falling back to the first scope — the

@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { Icon, ICONS } from './Icon';
+import { ARCHIMATE_GROUPS, ARCHIMATE_LABELS, elementTypeOf } from '@/lib/archimate/profile';
+import { AttachEa } from './ea/AttachEa';
 import { ICON_KEYS, deleteComponent, slugify } from '@/lib/defaults';
 import { deploymentsInUse } from '@/lib/deployment';
 import { envEntry, setEnvField } from '@/lib/environments';
@@ -209,6 +211,42 @@ function ComponentForm({ doc, patch, comp, notify, openLink, onClose, onSelect }
         </div>
       </div>
 
+      {/* When this component enters and leaves the landscape.
+          Only offered once the document declares plateaus — they are created in
+          the palette rail, next to the environments.
+
+          This is *input*: the marks below are what a plateau projection
+          produces from it. A document can use either — a single transition
+          marked by hand, or a plan across several plateaus — and the two are
+          shown apart so nobody wonders which one is winning. */}
+      {!!doc.plateaus?.length && (
+        <div className="field">
+          <span>Across the plateaus</span>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+            {([
+              ['from', 'Arrives at', 'in the baseline'],
+              ['changed', 'Reworked at', 'never'],
+              ['to', 'Retired at', 'stays']
+            ] as const).map(([key, label, none]) => (
+              <label className="field" key={key} style={{ margin: 0 }}><span>{label}</span>
+                <select className="select" value={comp.plan?.[key] || ''}
+                  onChange={e => set(c => {
+                    const next = { ...(c.plan || {}) };
+                    if (e.target.value) next[key] = e.target.value; else delete next[key];
+                    c.plan = Object.keys(next).length ? next : undefined;
+                  })}>
+                  <option value="">{none}</option>
+                  {doc.plateaus!.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                </select>
+              </label>
+            ))}
+          </div>
+          <div className="hint">
+            Pick a plateau in the toolbar to draw the landscape as it stands there.
+          </div>
+        </div>
+      )}
+
       {/* The transition mark. Unset is the common case and stays unwritten, so a
           document that describes no transition keeps exporting as it did. */}
       <div className="field">
@@ -258,6 +296,41 @@ function ComponentForm({ doc, patch, comp, notify, openLink, onClose, onSelect }
 
       <ListEditor label="Notes / known gaps" items={comp.notes || []}
         onChange={v => set(c => { c.notes = v; })} placeholder="Planned work, caveats" />
+
+      {/* Folded away, because it changes nothing about the drawing: it only
+          decides what this box becomes when the model leaves for a tool that
+          reasons in ArchiMate's vocabulary. Unset is the common case — the
+          export infers an application component, or whatever the layer implies —
+          so the field shows what it *would* pick rather than an empty box
+          pretending no decision has been made. */}
+      <details className="field">
+        <summary className="sect-label" style={{ cursor: 'pointer' }}>Enterprise architecture</summary>
+
+        {/* What this box *is*, across every diagram that draws it. The picker
+            is fetched only when this section is opened — most sessions never
+            touch the referential. */}
+        <AttachEa doc={doc} comp={comp} set={set} />
+
+        <label className="field" style={{ marginTop: 8 }}><span>ArchiMate type</span>
+          <select className="select" value={comp.archimate || ''}
+            onChange={e => set(c => {
+              c.archimate = (e.target.value || undefined) as Component['archimate'];
+            })}>
+            <option value="">
+              {`auto — ${ARCHIMATE_LABELS[elementTypeOf({ ...comp, archimate: undefined })]}`}
+            </option>
+            {ARCHIMATE_GROUPS.map(g => (
+              <optgroup key={g.label} label={g.label}>
+                {g.types.map(t => <option key={t} value={t}>{ARCHIMATE_LABELS[t]}</option>)}
+              </optgroup>
+            ))}
+          </select>
+          <div className="hint">
+            Only read by the ArchiMate export. The diagram, the HTML and the
+            document are unchanged either way.
+          </div>
+        </label>
+      </details>
 
       <div className="insp-sep" />
 

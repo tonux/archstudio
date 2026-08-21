@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { PROVIDERS } from '@/lib/ai/providers';
 import { publicAiSettings, saveAiSettings, type AiSettingsPatch } from '@/lib/settings';
+import { requireApi } from '@/lib/auth/guard';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -9,6 +10,9 @@ const noStore = { headers: { 'Cache-Control': 'no-store' } };
 
 /** The configuration, minus the key — which never leaves the server. */
 export async function GET() {
+  const denied = await requireApi();
+  if (denied) return denied;
+
   return NextResponse.json(
     { settings: publicAiSettings(), providers: PROVIDERS },
     noStore
@@ -24,6 +28,9 @@ function price(raw: unknown): number | null | undefined {
 }
 
 export async function PUT(req: Request) {
+  const denied = await requireApi();
+  if (denied) return denied;
+
   const body = await req.json().catch(() => ({}));
 
   const patch: AiSettingsPatch = {

@@ -5,6 +5,7 @@ import { toArchitecture } from '@/lib/ai/convert';
 import { providerInfo } from '@/lib/ai/providers';
 import { resolveAiConfig } from '@/lib/settings';
 import { getProject } from '@/lib/store';
+import { requireApi } from '@/lib/auth/guard';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -22,6 +23,9 @@ const decodedSize = (kind: SourceKind, data: string): number =>
   kind === 'pdf' ? Math.floor((data.length * 3) / 4) : Buffer.byteLength(data, 'utf8');
 
 export async function POST(req: Request) {
+  const denied = await requireApi();
+  if (denied) return denied;
+
   const cfg = resolveAiConfig();
   if (!cfg) {
     return NextResponse.json(

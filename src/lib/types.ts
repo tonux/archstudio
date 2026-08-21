@@ -19,6 +19,15 @@ export interface Meta {
   principle?: string;
   footer?: string;
   repo?: string;
+  /** Which spine the printable document is laid out on: the Architecture
+   *  Design Document plan, or TOGAF's ADM phases. Unset reads as `add`, which
+   *  is what every existing document is.
+   *
+   *  Lives in `meta` rather than at the top level because it is a fact about
+   *  how this document is *presented*, like its language and its title — and
+   *  because the viewer ignores meta keys it does not know, so it costs the
+   *  standalone export nothing. */
+  outline?: 'add' | 'togaf';
 }
 
 export interface Theme {
@@ -120,6 +129,9 @@ export interface Link {
   /** Where this call sits in the transition. Unset = it already exists.
    *  See `src/lib/lifecycle.ts` for what each mark commits you to. */
   state?: import('./lifecycle').Lifecycle;
+  /** When this call appears and disappears, across the plateaus. Server-only:
+   *  `projectAt` resolves it into `state` before anything renders. */
+  plan?: Plan;
 }
 
 /** One of the places the whole architecture runs — dev, SA, production.
@@ -132,6 +144,43 @@ export interface Environment {
   name: string;
   /** One line about the environment itself — "anonymised data", "VPN only". */
   note?: string;
+}
+
+/** One state of the whole landscape, on the way from today to the target.
+ *
+ *  TOGAF calls these plateaus and the ADM's phases E and F are about little
+ *  else. Declaration order is time order, like `environments` — a roadmap with
+ *  the target in the middle is a roadmap nobody trusts.
+ *
+ *  Crucially there is **one document**, not one per plateau. The alternative —
+ *  an AS-IS project and a TO-BE project — means maintaining a delta by hand
+ *  between two files that immediately diverge. See `src/lib/plateau.ts`. */
+export interface Plateau {
+  id: string;
+  name: string;
+  /** When it is expected. Free text, because "Q3 2027" and "after the merger"
+   *  are both real answers and neither is a date. */
+  date?: string;
+  kind?: 'baseline' | 'transition' | 'target';
+}
+
+/** When a component or a call enters and leaves the landscape.
+ *
+ *  Read against `Architecture.plateaus`. Everything optional: a component with
+ *  no plan is simply always there, which is the common case and stays unwritten.
+ *
+ *  This is *input*; `state` is the output. `projectAt` turns a plan into the
+ *  `new`/`changed`/`removed` marks the diagram already knows how to draw, so
+ *  nothing downstream — not the renderers, not the diff, not the viewer — has
+ *  to learn what a plateau is. */
+export interface Plan {
+  /** The plateau it first appears at. Unset = it is in the baseline. */
+  from?: string;
+  /** The plateau it is retired at. It is still drawn there, marked for removal,
+   *  and absent from every plateau after. Unset = it stays. */
+  to?: string;
+  /** A plateau where it is reworked without appearing or disappearing. */
+  changed?: string;
 }
 
 /** One component, in one environment. Every field but `env` is optional: naming
@@ -180,6 +229,27 @@ export interface Component {
   role?: string;
   /** Stable Lego catalog identity; `role` remains human-readable prose. */
   brick?: import('./lego/bricks').BrickId;
+  /** What this box is in ArchiMate's vocabulary, when the export's default is
+   *  wrong — an application component unless the layer says otherwise.
+   *
+   *  Server-only, and the only field of its kind so far: the viewer never reads
+   *  it, because it changes nothing about how a box is drawn. It exists so a
+   *  model can leave for a tool that does care. See `src/lib/archimate/`. */
+  archimate?: import('./archimate/profile').ArchimateElementType;
+  /** What this box is in the enterprise referential: the application it *is*,
+   *  the capabilities it carries, who owns it, what data it touches.
+   *
+   *  Ids, resolved through the document's own `imprint` — never through a
+   *  database. That is what lets an exported HTML file name them offline. Any
+   *  reference the imprint does not cover is dropped on normalisation, exactly
+   *  as a link with no matching dep is. See `src/lib/ea/imprint.ts`. */
+  ea?: import('./ea/types').ComponentEa;
+  /** When this component enters and leaves the landscape, across the plateaus.
+   *
+   *  Server-only, and deliberately so: `projectAt` resolves it into `state`,
+   *  which every renderer and the standalone viewer already understand. The
+   *  trajectory therefore costs the manual mirror nothing. */
+  plan?: Plan;
   features?: string[];
   notes?: string[];
   deps?: string[];
@@ -200,9 +270,49 @@ export interface Technology {
 export interface FlowStep { component: string; title: string; description?: string }
 export interface Flow {
   id: string; name: string; group?: string; sub?: string; note?: string; steps: FlowStep[];
+  /** What kind of path this is. A customer journey and a value stream are the
+   *  same shape — ordered steps across components — and differ only in whose
+   *  words they are told in, so they share a renderer and are told apart by a
+   *  label. Unset reads as a journey, which is what every existing flow is. */
+  kind?: 'journey' | 'value-stream';
 }
 
-export type SectionType = 'cards' | 'timeline' | 'table' | 'compare' | 'text';
+/* -------------------------------------------------------------- motivation
+ *
+ * Why the architecture is the way it is: the drivers behind it, what it is
+ * trying to achieve, the rules it holds to.
+ *
+ * These live in the *document* rather than in the enterprise referential, and
+ * that is deliberate. A capability is a fact about the organisation and belongs
+ * to everyone; the reasoning behind one architecture belongs to that
+ * architecture, and copying it into a shared table would make it nobody's.
+ *
+ * The value is not a picture. It is that "which components serve this goal" and
+ * "what does this principle actually constrain" become questions with an
+ * answer — a traceability matrix, which is why a motivation section renders as
+ * cards and a table rather than as a diagram. */
+
+export type MotivationKind =
+  | 'driver' | 'goal' | 'principle' | 'requirement' | 'constraint' | 'assessment';
+
+export interface MotivationItem {
+  id: string;
+  kind: MotivationKind;
+  name: string;
+  /** The sentence under the name — what it means, or what it forbids. */
+  text?: string;
+  /** Component ids, and entity ids from the imprint, that realise this.
+   *
+   *  Named for the direction ArchiMate uses: `Realization` runs from the
+   *  concrete to the abstract, so a component realises a goal and the goal is
+   *  *realised by* it. Unknown ids are dropped on read. */
+  realizedBy?: string[];
+}
+
+export interface Motivation { items: MotivationItem[] }
+
+export type SectionType =
+  'cards' | 'timeline' | 'table' | 'compare' | 'text' | 'capability-map';
 
 /** Where a section sits in the printable design document.
  *
@@ -252,6 +362,28 @@ export interface CompareSection extends Section {
 export interface TextBlock { group?: string; title?: string; body?: string | string[] }
 export interface TextSection extends Section { type: 'text'; blocks: TextBlock[] }
 
+/** One box on a capability map, with everything under it.
+ *
+ *  A *frozen copy* of what the referential said, for the same reason the
+ *  imprint exists: the map has to draw offline, in a file emailed to a
+ *  committee, with no referential in reach. */
+export interface CapabilityNode {
+  name: string;
+  code?: string;
+  /** How many applications carry it, this box and everything under it. The
+   *  number is what turns a picture into a finding — a zero is a gap and a
+   *  seven is a conversation. Absent when nothing was counted. */
+  count?: number;
+  children: CapabilityNode[];
+}
+
+/** The one genuinely new layout in this format: a nested grid, laid out by CSS
+ *  from the tree alone. No coordinates, so it stays deterministic and prints. */
+export interface CapabilityMapSection extends Section {
+  type: 'capability-map';
+  roots: CapabilityNode[];
+}
+
 export interface Architecture {
   meta: Meta;
   theme: Theme;
@@ -268,6 +400,29 @@ export interface Architecture {
   technologies: Technology[];
   flows: Flow[];
   sections: Section[];
+  /** A frozen copy of everything this document cites from the enterprise
+   *  referential — ids with their names, and nothing more.
+   *
+   *  The referential lives in the database; this travels with the document. A
+   *  standalone HTML file sent to a committee has to render "carries the
+   *  Billing capability" six months later, offline, with no referential in
+   *  reach, and a bare id would render as `cap_7f3a`.
+   *
+   *  Refreshed on every save, so a rename propagates; exports already sent keep
+   *  the name of the day, which is the right reading for a dated deliverable.
+   *  Absent — not empty — in a document that cites nothing. */
+  imprint?: import('./ea/types').Imprint;
+  /** The states this landscape is planned to go through, in time order.
+   *
+   *  Absent in a document that describes only today, which is most of them.
+   *  See `src/lib/plateau.ts` for how one is projected. */
+  plateaus?: Plateau[];
+  /** Why this architecture is the way it is. Absent — not empty — in a document
+   *  that does not say. See `MotivationItem`.
+   *
+   *  Server-only: a motivation section is resolved into ordinary cards at
+   *  export, so the standalone viewer never reads this. */
+  motivation?: Motivation;
 }
 
 /* ------------------------------------------------------------------ records */
@@ -321,4 +476,8 @@ export interface RevisionRecord {
   /** The number the document carried when it was frozen. */
   version: string | null;
   kind: import('./versions').RevisionKind;
+  /** Who wrote it, when the install knew. Null for every row taken before
+   *  identity existed and for every install running without authentication —
+   *  which is a fact about the row, not a gap. */
+  author?: string | null;
 }
