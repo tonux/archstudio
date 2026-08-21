@@ -601,3 +601,38 @@ table.cmp td:first-child{font-weight:600;color:var(--ink)}
 .groupbar{display:flex;gap:2px;height:34px;border-radius:0;overflow:hidden;margin:14px 0 10px}
 .groupbar>div{display:grid;place-items:center;font-family:var(--mono);font-size:10.5px;font-weight:700;color:var(--on-fill);min-width:22px}
 .kbd{font-family:var(--mono);font-size:10.5px;border:1px solid var(--line-2);border-bottom-width:2px;border-radius:0;padding:1px 5px;color:var(--ink-2);background:var(--panel-2)}
+
+/* ---------------------------------------------------------- capability map
+ *
+ * Nested boxes from a tree, laid out by grid alone — no coordinates, so the
+ * same markup works here, in the print stylesheet and on screen. Depth is
+ * carried by a class rather than by an inline indent, which keeps the nesting
+ * legible when the map is three levels deep and the boxes are narrow.
+ *
+ * The heat is three states and not a ramp: nobody carries it, someone does,
+ * several do. A gradient would invite reading a 4 as worse than a 3. */
+.capmap { display: grid; grid-template-columns: repeat(var(--capcols, 3), 1fr); gap: 12px; }
+.capbox {
+  border: 1px solid var(--line-2); border-radius: 3px; padding: 10px;
+  background: var(--panel); break-inside: avoid;
+}
+.capbox.d1 { background: var(--panel-2); padding: 8px; }
+.capbox.d2, .capbox.d3 { background: var(--panel-3); padding: 6px 8px; }
+.caphead { display: flex; align-items: baseline; gap: 8px; }
+.capname { font-weight: 600; font-size: 13px; flex: 1; }
+.capbox.d1 .capname, .capbox.d2 .capname, .capbox.d3 .capname { font-weight: 500; font-size: 12px; }
+.capcode { font-size: 10px; color: var(--ink-3); }
+.capcount {
+  font-size: 10px; min-width: 18px; text-align: center; padding: 1px 5px;
+  border-radius: 10px; border: 1px solid var(--line-2); color: var(--ink-2);
+}
+/* Nobody carries it. The one state worth colouring, because it is the one
+   nobody notices by reading. */
+.capbox.cap-gap { border-style: dashed; }
+.capbox.cap-gap .capcount { border-style: dashed; color: var(--ink-3); }
+.capbox.cap-many .capcount { border-color: var(--ink-3); color: var(--ink); font-weight: 600; }
+.capkids { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; margin-top: 8px; }
+.capbox.d1 .capkids, .capbox.d2 .capkids { grid-template-columns: 1fr; }
+@media (max-width: 720px) {
+  .capmap, .capkids { grid-template-columns: 1fr !important; }
+}

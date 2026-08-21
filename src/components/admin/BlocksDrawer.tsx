@@ -13,9 +13,10 @@ const TYPE_ICONS: Record<SectionType, string> = {
   timeline: 'clock',
   table: 'chart',
   compare: 'layers',
+  'capability-map': 'grid',
 };
 
-const TYPE_ORDER: SectionType[] = ['cards', 'text', 'timeline', 'table', 'compare'];
+const TYPE_ORDER: SectionType[] = ['cards', 'text', 'timeline', 'table', 'compare', 'capability-map'];
 
 function sectionTitle(item: AdminSectionListItem, locale: 'en' | 'fr'): string {
   return locale === 'fr' ? (item.titleFr || item.id) : (item.titleEn || item.id);

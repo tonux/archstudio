@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { MAX_UPLOAD_BYTES, acceptAttr } from '@/lib/ai/config';
 import { providerInfo } from '@/lib/ai/providers';
 import { publicAiSettings, resolveAiConfig } from '@/lib/settings';
+import { requireApi } from '@/lib/auth/guard';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -11,6 +12,9 @@ export const dynamic = 'force-dynamic';
  * operator who has configured nothing never sees a button that would only tell
  * them off for pressing it. */
 export async function GET() {
+  const denied = await requireApi();
+  if (denied) return denied;
+
   const cfg = resolveAiConfig();
   const settings = publicAiSettings();
   const info = providerInfo(settings.provider);

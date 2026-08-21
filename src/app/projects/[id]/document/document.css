@@ -644,3 +644,29 @@ a.paper-btn { border-bottom-width: 1px; }
   .paper-table tr { break-inside: avoid; }
   .paper-toc a { text-decoration: none; }
 }
+
+/* ---------------------------------------------------------- capability map
+ *
+ * The same tokens and the same shape as `viewer/style.css`, tuned for paper:
+ * every box refuses to be split across a page, because half a capability at
+ * the bottom of page 7 is worse than a shorter page 7. */
+.capmap { display: grid; grid-template-columns: repeat(var(--capcols, 3), 1fr); gap: 10px; }
+.capbox {
+  border: 1px solid var(--line-2); border-radius: 2px; padding: 8px;
+  break-inside: avoid; page-break-inside: avoid;
+}
+.capbox.d1 { background: var(--panel-2); padding: 6px 8px; }
+.capbox.d2, .capbox.d3 { background: var(--panel-3); padding: 4px 8px; }
+.caphead { display: flex; align-items: baseline; gap: 8px; }
+.capname { font-weight: 600; font-size: 11px; flex: 1; }
+.capbox.d1 .capname, .capbox.d2 .capname, .capbox.d3 .capname { font-weight: 500; font-size: 10px; }
+.capcode { font-size: 8.5px; color: var(--ink-3); }
+.capcount {
+  font-size: 8.5px; min-width: 16px; text-align: center; padding: 0 4px;
+  border-radius: 8px; border: 1px solid var(--line-2); color: var(--ink-2);
+}
+.capbox.cap-gap { border-style: dashed; }
+.capbox.cap-gap .capcount { border-style: dashed; color: var(--ink-3); }
+.capbox.cap-many .capcount { border-color: var(--ink-3); color: var(--ink); font-weight: 600; }
+.capkids { display: grid; grid-template-columns: repeat(2, 1fr); gap: 5px; margin-top: 6px; }
+.capbox.d1 .capkids, .capbox.d2 .capkids { grid-template-columns: 1fr; }

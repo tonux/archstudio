@@ -59,6 +59,8 @@ const LABELS = {
     overview: 'Overview', architecture: 'Architecture',
     flows: 'Flows', stack: 'Tech stack', hintDiagram: 'Hover = dependencies · Click = detail sheet',
     role: 'Role', technologies: 'Technologies', responsibilities: 'Responsibilities',
+    application: 'Application', capabilities: 'Capabilities', owner: 'Owner',
+    businessObjects: 'Business objects',
     notes: 'Notes', dependsOn: 'Depends on', usedBy: 'Used by', outgoing: 'outgoing',
     incoming: 'incoming', components: 'Components', distribution: 'Component distribution',
     endpoints: 'Endpoints', environments: 'Environments',
@@ -81,6 +83,8 @@ const LABELS = {
     overview: "Vue d’ensemble", architecture: 'Architecture',
     flows: 'Flux métier', stack: 'Stack technique', hintDiagram: 'Survol = dépendances · Clic = fiche détaillée',
     role: 'Rôle', technologies: 'Technologies', responsibilities: 'Responsabilités',
+    application: 'Application', capabilities: 'Capacités', owner: 'Propriétaire',
+    businessObjects: 'Objets métier',
     notes: 'Chantiers identifiés', dependsOn: 'Dépend de', usedBy: 'Sollicité par',
     outgoing: 'sortant', incoming: 'entrant', components: 'Composants',
     distribution: 'Répartition des composants', endpoints: 'Domaines & endpoints',
@@ -184,6 +188,44 @@ function normalize(raw) {
    * broken should not stay broken in the tree the rest of the file reads. */
   d.environments = d.environments || [];
   const eById = Object.fromEntries(d.environments.map(e => [e.id, e]));
+
+  /* What this document quotes from the enterprise referential.
+   *
+   * Mirrors `normalizeImprint` in src/lib/ea/imprint.ts, and has to: the rule
+   * that a citation is only kept when the imprint backs it is what makes the
+   * exported file able to name a capability with no referential in reach. An id
+   * we cannot resolve would render as `cap_7f3a`, so it is dropped instead.
+   *
+   * Only rule 1 is mirrored. Rule 2 — pruning entries nobody cites — is a
+   * storage concern and the viewer never writes. */
+  d.imprint = d.imprint && Array.isArray(d.imprint.entities) ? d.imprint : null;
+  const IM = {};
+  if (d.imprint) d.imprint.entities.forEach(e => { if (e && e.id) IM[e.id] = e; });
+
+  const EA_KIND = { app: 'application', owner: 'actor',
+                    capability: 'capability', object: 'business-object' };
+  const eaOne = (id, role) => (IM[id] && IM[id].kind === EA_KIND[role] ? id : undefined);
+  const eaMany = (ids, role) =>
+    (Array.isArray(ids) ? ids : []).filter(id => eaOne(id, role));
+
+  d.components.forEach(c => {
+    if (!c.ea || typeof c.ea !== 'object') { c.ea = undefined; return; }
+    const ea = {};
+    const app = eaOne(c.ea.app, 'app'); if (app) ea.app = app;
+    const owner = eaOne(c.ea.owner, 'owner'); if (owner) ea.owner = owner;
+    const caps = eaMany(c.ea.capabilities, 'capability'); if (caps.length) ea.capabilities = caps;
+    const objs = eaMany(c.ea.objects, 'object'); if (objs.length) ea.objects = objs;
+    c.ea = Object.keys(ea).length ? ea : undefined;
+  });
+
+  /* "Sales › Billing", from the imprint alone. Stops on a cycle, which the
+   * writer prevents but a hand-edited JSON can still carry. */
+  d.entityPath = id => {
+    const parts = []; const seen = {};
+    let at = id;
+    while (at && !seen[at] && IM[at]) { seen[at] = 1; parts.unshift(IM[at].name); at = IM[at].parent; }
+    return parts.join(' › ') || id;
+  };
 
   const zById = Object.fromEntries(d.zones.map(z => [z.id, z]));
   d.zones.forEach(z => {
@@ -1591,9 +1633,49 @@ function renderSection(sec) {
     + (sec.subtitle ? `<p class="sec-sub">${rich(sec.subtitle)}</p>` : '');
   const body = ({
     cards: renderCards, timeline: renderTimeline, table: renderTable,
-    compare: renderCompare, text: renderText
+    compare: renderCompare, text: renderText, 'capability-map': renderCapabilityMap
   }[sec.type] || (() => `<div class="card empty">Unknown section type "${esc(sec.type)}"</div>`))(sec);
   return head + body + (sec.note ? `<div style="height:18px"></div><div class="note">${rich(sec.note)}</div>` : '');
+}
+
+/* The capability map. Mirrors `src/lib/views/capability-map.ts` — the column
+ * rule especially, because the map has to be the same shape here, on paper and
+ * on screen, and two rules that disagree would make the printed deliverable a
+ * different drawing from the one that was approved.
+ *
+ * Nested boxes, laid out by CSS from the tree alone. No coordinates and no
+ * measuring pass: this file has no layout engine and does not need one.
+ *
+ * The count is the point. A box carried by nobody is a gap and says so; one
+ * carried by three or more is a conversation. Without the numbers this is an
+ * org chart. */
+function capabilityColumns(nodes) {
+  if (nodes.length <= 2) return nodes.length || 1;
+  if (nodes.some(n => (n.children || []).length > 3)) return 2;
+  return nodes.length <= 6 ? 3 : 4;
+}
+
+function capabilityBox(node, depth) {
+  const kids = node.children || [];
+  const n = typeof node.count === 'number' ? node.count : null;
+  /* Three states, not a gradient: nobody, someone, too many. A ramp would
+   * invite reading a 4 as worse than a 3, which it is not. */
+  const heat = n === null ? '' : n === 0 ? ' cap-gap' : n >= 3 ? ' cap-many' : ' cap-ok';
+  return `<div class="capbox d${Math.min(depth, 3)}${heat}">
+    <div class="caphead">
+      <span class="capname">${esc(node.name)}</span>
+      ${node.code ? `<span class="capcode mono">${esc(node.code)}</span>` : ''}
+      ${n === null ? '' : `<span class="capcount" title="Applications carrying it">${n}</span>`}
+    </div>
+    ${kids.length ? `<div class="capkids">${kids.map(k => capabilityBox(k, depth + 1)).join('')}</div>` : ''}
+  </div>`;
+}
+
+function renderCapabilityMap(sec) {
+  const roots = sec.roots || [];
+  if (!roots.length) return `<div class="card empty">No capabilities.</div>`;
+  return `<div class="capmap" style="--capcols:${capabilityColumns(roots)}">${
+    roots.map(r => capabilityBox(r, 0)).join('')}</div>`;
 }
 
 function renderCards(sec) {
@@ -1683,6 +1765,26 @@ function renderCompare(sec) {
 /* ======================================================================== *
  * DRAWER
  * ======================================================================== */
+/* What the referential says about this box, rendered from the document's own
+ * imprint and from nothing else. This is the whole reason the imprint exists:
+ * the file is opened offline, months later, by someone who has never heard of
+ * the referential, and it still has to read as "carries the Billing capability"
+ * rather than as an id. */
+function eaBlock(c) {
+  const ea = c.ea;
+  if (!ea) return '';
+  const one = (label, id) =>
+    id ? `<h4>${label}</h4><p>${esc(DATA.entityPath(id))}</p>` : '';
+  const many = (label, ids) => (ids && ids.length)
+    ? `<h4>${label}</h4><div class="taglist">${
+        ids.map(id => `<span class="tag">${esc(DATA.entityPath(id))}</span>`).join('')}</div>`
+    : '';
+  return one(T.application, ea.app)
+    + many(T.capabilities, ea.capabilities)
+    + one(T.owner, ea.owner)
+    + many(T.businessObjects, ea.objects);
+}
+
 function openDrawer(id) {
   const c = C[id]; if (!c) return;
   const col = gvar(c.group);
@@ -1725,6 +1827,7 @@ function openDrawer(id) {
           e.url ? `<a href="${esc(/^https?:/.test(e.url) ? e.url : 'https://' + e.url)}" target="_blank" rel="noopener">${esc(e.url)}</a>` : ''
         }${meta ? `<em>${esc(meta)}</em>` : ''}</dd></div>`;
       }).join('')}</dl>` : ''}
+    ${eaBlock(c)}
     ${c.tech.length ? `<h4>${T.technologies}</h4><div class="taglist">${c.tech.map(t => `<span class="tag k">${esc(t)}</span>`).join('')}</div>` : ''}
     ${c.features.length ? `<h4>${T.responsibilities}</h4><ul>${c.features.map(f => `<li>${rich(f)}</li>`).join('')}</ul>` : ''}
     ${c.notes.length ? `<h4>${T.notes}</h4><ul>${c.notes.map(f => `<li>${rich(f)}</li>`).join('')}</ul>` : ''}

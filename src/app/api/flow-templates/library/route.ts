@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { saveFlowPattern } from '@/lib/flows/library';
+import { requireApi } from '@/lib/auth/guard';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -10,6 +11,9 @@ export const dynamic = 'force-dynamic';
  * from the id it minted. */
 
 export async function POST(req: Request) {
+  const denied = await requireApi();
+  if (denied) return denied;
+
   const body = await req.json().catch(() => ({}));
   try {
     return NextResponse.json({ library: saveFlowPattern(body) }, { status: 201 });
