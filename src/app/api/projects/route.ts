@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server';
 import { listProjects, createProject } from '@/lib/store';
-import { LANGS, TARGETS, getTemplate, instantiate, t } from '@/lib/templates';
+import { contentFromAdmin } from '@/lib/admin/flags';
+import { getPublishedProjectTemplate, instantiateProjectTemplate } from '@/lib/admin/project-templates';
+import { LANGS, TARGETS, t } from '@/lib/templates';
+import { instantiateResolved, resolveGetTemplate } from '@/lib/templates/resolve.server';
 import type { Architecture } from '@/lib/types';
 
 export const runtime = 'nodejs';
@@ -21,8 +24,14 @@ export async function POST(req: Request) {
 
   /* A project created from a template is an ordinary project: the template is
    * resolved here, once, and never referenced again. */
-  if (body.templateId) {
-    const tpl = getTemplate(String(body.templateId));
+  if (contentFromAdmin() && body.projectTemplateId) {
+    const tpl = getPublishedProjectTemplate(String(body.projectTemplateId));
+    if (!tpl) return NextResponse.json({ error: 'unknown projectTemplateId' }, { status: 400 });
+    data = instantiateProjectTemplate(tpl, name);
+    accent = accent || tpl.meta.accent;
+    description = description || tpl.meta.taglineEn;
+  } else if (body.templateId) {
+    const tpl = resolveGetTemplate(String(body.templateId));
     if (!tpl) return NextResponse.json({ error: 'unknown templateId' }, { status: 400 });
 
     const target = TARGETS.includes(body.target) ? body.target : 'agnostic';
@@ -33,7 +42,7 @@ export async function POST(req: Request) {
     }
     const lang = LANGS.includes(body.lang) ? body.lang : 'en';
 
-    data = instantiate(tpl, { target, lang, projectName: name });
+    data = instantiateResolved(tpl, { target, lang, projectName: name });
     accent = accent || tpl.accent;
     description = description || t(tpl.tagline, lang);
   }

@@ -1,4 +1,5 @@
 import { db, uid, now, plain, plainAll } from './db';
+import { applyResolvedFlowCopy } from './admin/flow-copy.server';
 import { blankArchitecture, normalizeArchitecture } from './defaults';
 import { RESTORE_LABEL, revisionKind } from './versions';
 import type {
@@ -140,9 +141,10 @@ export function createProject(input: {
   data?: Partial<Architecture>;
 }): ProjectWithData {
   const id = uid('p_');
-  const doc = input.data
+  let doc = input.data
     ? normalizeArchitecture(input.data)
     : blankArchitecture(input.name);
+  doc = applyResolvedFlowCopy(doc);
   doc.meta.name = doc.meta.name || input.name;
 
   const max = plain<{ m: number | null }>(

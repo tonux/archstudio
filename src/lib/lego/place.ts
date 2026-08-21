@@ -40,6 +40,8 @@ export function placeVariant(snapshot: LegoCatalogSnapshot, input: PlaceVariantI
     name: variant.label,
     brick: variant.maps_to as BrickId,
     role: prose.role,
+    purpose: brick.purpose || prose.role,
+    concernTags: brick.concernTags?.length ? [...brick.concernTags] : undefined,
     group: input.scope || brick.defaultScope,
     layer: brick.layer,
     icon: brick.icon,

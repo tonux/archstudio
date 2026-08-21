@@ -92,6 +92,8 @@ export interface InstantiateOptions {
   projectName: string;
   /** ISO date, injected so tests and snapshots stay deterministic. */
   today?: string;
+  /** Last check date for vendor service names. Defaults to `SERVICES_VERIFIED_ON`. */
+  verifiedOn?: string;
 }
 
 export function instantiate(tpl: Template, opts: InstantiateOptions): Architecture {
@@ -196,7 +198,10 @@ export function instantiate(tpl: Template, opts: InstantiateOptions): Architectu
 
   /* 5 — sections, plus the generated deployment table */
   const sections: Section[] = (tpl.sections || []).map(s => resolveDeep<Section>(s, lang));
-  if (resolved) sections.push(deploymentSection(tpl, { lang, target: resolved, targetLabel, omitted, displayName, overrideOf }));
+  if (resolved) sections.push(deploymentSection(tpl, {
+    lang, target: resolved, targetLabel, omitted, displayName, overrideOf,
+    verifiedOn: opts.verifiedOn ?? SERVICES_VERIFIED_ON,
+  }));
 
   /* The technology table is a by-product of the resolved components: on a cloud
    * target it is exactly the list of services the document commits to. It is
@@ -252,7 +257,8 @@ export function instantiate(tpl: Template, opts: InstantiateOptions): Architectu
     components,
     technologies,
     flows,
-    sections
+    sections,
+    decisions: []
   };
 
   return normalizeArchitecture(doc);
@@ -264,6 +270,7 @@ function deploymentSection(tpl: Template, ctx: {
   lang: Lang; target: Exclude<CloudTarget, 'agnostic'>; targetLabel: string;
   omitted: Set<string>; displayName: (id: string) => string;
   overrideOf: (id: string) => { name?: unknown; tech?: string[]; note?: unknown } | undefined;
+  verifiedOn: string;
 }): Section {
   const { lang, targetLabel, omitted } = ctx;
   const layerOrder = new Map(tpl.layers.map((l, i) => [l.id, i]));
@@ -284,7 +291,7 @@ function deploymentSection(tpl: Template, ctx: {
 
   const dropped = tpl.components.filter(c => omitted.has(c.id)).map(c => t(c.name, lang));
   const notes = [
-    fill(STR.verified[lang], { date: SERVICES_VERIFIED_ON }),
+    fill(STR.verified[lang], { date: ctx.verifiedOn }),
     ...(dropped.length ? [fill(STR.omitted[lang], { target: targetLabel, list: list(dropped, lang) })] : [])
   ];
 
@@ -335,8 +342,8 @@ function collectTechnologies(
 /* ---------------------------------------------------------------- summaries */
 
 /** Metadata for the picker: both languages, no component bodies. */
-export function templateSummaries(): TemplateSummary[] {
-  return TEMPLATES.map(tpl => {
+export function templateSummariesFrom(templates: Template[]): TemplateSummary[] {
+  return templates.map(tpl => {
     const counts = Object.fromEntries(
       TARGETS.map(target => [
         target,
@@ -351,6 +358,7 @@ export function templateSummaries(): TemplateSummary[] {
 
     return {
       id: tpl.id,
+      kind: 'architecture' as const,
       icon: tpl.icon,
       accent: tpl.accent,
       accentDark: tpl.accentDark,
@@ -362,4 +370,8 @@ export function templateSummaries(): TemplateSummary[] {
       counts
     };
   });
+}
+
+export function templateSummaries(): TemplateSummary[] {
+  return templateSummariesFrom(TEMPLATES);
 }

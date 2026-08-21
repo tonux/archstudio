@@ -192,9 +192,32 @@ Functions became Cloud Run functions, Azure AI Foundry became Microsoft Foundry,
 closing in favour of Entra External ID. Re-read that file once a year.
 
 ```bash
-npm test                        # the 60 instantiations and their invariants
-UPDATE_SNAPSHOTS=1 npm test     # accept a deliberate change
+npm test                        # full suite (templates + admin + lego)
+npm run test:admin              # admin CMS regression slice (F-REG)
+UPDATE_SNAPSHOTS=1 npm test     # accept a deliberate template snapshot change
 ```
+
+---
+
+## Admin CMS (content without a code PR)
+
+Open **`/admin`** on a local or private deploy. The shell uses the same Atelier chrome as the
+editor (teal, square corners, `Fields` / `Icon`). There is **no auth** — same threat model as the
+rest of the app ([SECURITY.md](SECURITY.md)): VPN / reverse-proxy / Tailscale only.
+
+| Area | What you edit | Notes |
+|---|---|---|
+| Catalogue Lego | Bricks, scopes, intents, variants, dependencies, technologies | Create / update / delete; locked seed ids reappear after `ensure` |
+| Templates | Project + architecture templates, cloud services | Diagram = same surface as the project editor |
+| ADD / Flows | Document section presets, journey patterns | Publish blocked on placeholder markers (`[…]`, « À estimer ») |
+| Locale / Import | System copy + layer labels; content bundle export/import | Bundle version `1` |
+| Publish | Wizard across all content domains | Validates before write; issues link into editors |
+
+Runtime flag **`CONTENT_FROM_ADMIN=1`**: published admin content feeds project creation, flow
+plates, and ADD presets. Flag off keeps the previous code/seed paths.
+
+Docs for reviewers: [`docs/add/README.md`](docs/add/README.md) · regression
+[`docs/add/REGRESSION-admin.md`](docs/add/REGRESSION-admin.md).
 
 ---
 
@@ -786,7 +809,8 @@ npm run build && npm start          # a VPS, a Raspberry Pi, a container with a 
 
 There is no authentication. Put it behind your VPN, a reverse-proxy basic-auth, or a Tailscale
 network — do not expose it to the open internet as is. Adding auth means one middleware and a
-session check in the API routes; the data model does not need to change.
+session check in the API routes; the data model does not need to change. The **`/admin`** CMS
+shares that model: anyone who can reach the port can publish or wipe content domains.
 
 **Docker** — a `Dockerfile` and `docker-compose.yml` ship at the repo root, mainly for anyone
 whose local Node is older than the `node:sqlite` floor above.
@@ -807,7 +831,8 @@ automatically.
 
 - Diagram placeholders for the document chapters that have none — network topology, CI/CD pipeline
 - Keyboard navigation on the canvas, and undo/redo
-- Optional auth for shared installs
+- Optional auth for shared installs (covers `/admin` too)
+- Hydrate gated ADD cards to Acme density (no « Composants concernés » dump — CONTRAT B2)
 - Multi-select and bulk move on the canvas
 
 ## Community

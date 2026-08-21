@@ -35,6 +35,7 @@ import {
   bandPlan, describeZone, inflatedUnion, layerRuns, layerSlots, withDescendants, zoneDepth,
   zonePad, zoneSvg, zonesInUse, type BandPlan, type Box
 } from '@/lib/zones';
+import { componentDescription } from '@/lib/document/concerns';
 import { anchor, buildOutline, supportLayerId, toc, type DocBody, type DocPart } from '@/lib/document/plan';
 import type {
   Architecture, CardItem, CardsSection, CompareSection, Component, Environment, Flow,
@@ -57,7 +58,11 @@ const STRINGS = {
     tech: 'Technologies', role: 'Role',
     dependsOn: 'Depends on', detail: 'Component detail', notes: 'Notes',
     technology: 'Technology', category: 'Category', description: 'Description',
-    step: 'Step', dash: '—'
+    step: 'Step', dash: '—',
+    buildingBlock: 'Building block',
+    adrTitle: 'Decision', adrStatus: 'Status', adrContext: 'Context',
+    adrDecision: 'Decision', adrConsequences: 'Consequences',
+    statusProposed: 'Proposed', statusAccepted: 'Accepted', statusSuperseded: 'Superseded'
   },
   fr: {
     back: "Retour à l'éditeur", print: 'Imprimer · Enregistrer en PDF', contents: 'Sommaire',
@@ -68,7 +73,11 @@ const STRINGS = {
     tech: 'Technologies', role: 'Rôle',
     dependsOn: 'Dépend de', detail: 'Détail des composants', notes: 'Notes',
     technology: 'Technologie', category: 'Catégorie', description: 'Description',
-    step: 'Étape', dash: '—'
+    step: 'Étape', dash: '—',
+    buildingBlock: 'Bloc',
+    adrTitle: 'Décision', adrStatus: 'Statut', adrContext: 'Contexte',
+    adrDecision: 'Décision', adrConsequences: 'Conséquences',
+    statusProposed: 'Proposé', statusAccepted: 'Accepté', statusSuperseded: 'Remplacé'
   }
 } as const;
 
@@ -195,11 +204,14 @@ function PartBlock({ part, doc, T }: { part: DocPart; doc: Architecture; T: Stri
 function Body({ body, doc, T }: { body: DocBody; doc: Architecture; T: Strings }) {
   switch (body.kind) {
     case 'intro': return <Intro doc={doc} />;
+    case 'context': return <Context doc={doc} T={T} />;
+    case 'adr-index': return <AdrIndex body={body} T={T} />;
     case 'diagram': return <Figure doc={doc} T={T} />;
     case 'inventory': return <Inventory doc={doc} T={T} />;
     case 'environments': return <Environments doc={doc} T={T} />;
     case 'section': return <SectionBody doc={doc} section={body.section} />;
     case 'flow': return <FlowBody doc={doc} flow={body.flow} T={T} />;
+    case 'glossary': return <Glossary doc={doc} body={body} T={T} />;
     case 'stack': return <Stack doc={doc} T={T} />;
   }
 }
@@ -210,6 +222,119 @@ function Intro({ doc }: { doc: Architecture }) {
     <>
       {paragraphs.map((p, i) => <p key={i} className="paper-lead" {...rich(p)} />)}
       {doc.meta.distributionNote && <p className="paper-note" {...rich(doc.meta.distributionNote)} />}
+    </>
+  );
+}
+
+function Context({ doc, T }: { doc: Architecture; T: Strings }) {
+  const groupName = (id: string) => doc.groups.find(g => g.id === id)?.name || id;
+  const colour = (id: string) => doc.groups.find(g => g.id === id)?.color || '#94A3B8';
+  return (
+    <>
+      {!!doc.groups.length && (
+        <table className="paper-table">
+          <thead>
+            <tr><th>{T.scope}</th><th>{T.description}</th></tr>
+          </thead>
+          <tbody>
+            {doc.groups.map(g => (
+              <tr key={g.id}>
+                <td>
+                  <i className="paper-dot" style={{ background: colour(g.id) }} />
+                  {g.name}
+                </td>
+                <td>{g.description || T.dash}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      {!!doc.components.length && (
+        <table className="paper-table">
+          <thead>
+            <tr>
+              <th style={{ width: '32%' }}>{T.buildingBlock}</th>
+              <th style={{ width: '22%' }}>{T.scope}</th>
+              <th>{T.role}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {doc.components.map(c => (
+              <tr key={c.id}>
+                <td>{c.name}</td>
+                <td>
+                  <i className="paper-dot" style={{ background: colour(c.group) }} />
+                  {groupName(c.group)}
+                </td>
+                <td>{componentDescription(c) || T.dash}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </>
+  );
+}
+
+function Glossary({ doc, body, T }: { doc: Architecture; body: Extract<DocBody, { kind: 'glossary' }>; T: Strings }) {
+  const names = new Set(body.names);
+  const components = doc.components.filter(c => names.has(c.name));
+  return (
+    <table className="paper-table">
+      <thead>
+        <tr><th>{T.buildingBlock}</th><th>{T.description}</th></tr>
+      </thead>
+      <tbody>
+        {components.map(c => (
+          <tr key={c.id}>
+            <td>{c.name}</td>
+            <td>{componentDescription(c) || T.dash}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+function AdrIndex({ body, T }: { body: Extract<DocBody, { kind: 'adr-index' }>; T: Strings }) {
+  const statusLabel = (status: string) => {
+    switch (status) {
+      case 'proposed': return T.statusProposed;
+      case 'accepted': return T.statusAccepted;
+      case 'superseded': return T.statusSuperseded;
+      default: return status;
+    }
+  };
+  return (
+    <>
+      <table className="paper-table">
+        <thead>
+          <tr>
+            <th style={{ width: '36%' }}>{T.adrTitle}</th>
+            <th style={{ width: '16%' }}>{T.adrStatus}</th>
+            <th>{T.adrDecision}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {body.decisions.map(d => (
+            <tr key={d.id}>
+              <td>{d.title}</td>
+              <td>{statusLabel(d.status)}</td>
+              <td>{d.decision}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <div className="paper-sheets">
+        {body.decisions.map(d => (
+          <div className="paper-card" key={d.id}>
+            <h4>{d.title}</h4>
+            <p><b>{T.adrContext} :</b> {d.context}</p>
+            <p><b>{T.adrDecision} :</b> {d.decision}</p>
+            <p><b>{T.adrConsequences} :</b> {d.consequences}</p>
+          </div>
+        ))}
+      </div>
     </>
   );
 }

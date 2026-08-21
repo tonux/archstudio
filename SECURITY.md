@@ -29,8 +29,9 @@ follows from that.
 ### Not vulnerabilities
 
 **There is no authentication, and no authorisation.** Anyone who can reach the port can read,
-edit, export and delete every project. This is documented in the README, and the fix is a reverse
-proxy, a VPN, or the middleware the README describes — not a report.
+edit, export and delete every project — and, with the Admin CMS, publish or replace content
+domains under `/admin` and `/api/admin/**`. This is documented in the README, and the fix is a
+reverse proxy, a VPN, or the middleware the README describes — not a report.
 
 **An instance exposed to the open internet is compromised by design.** Reporting that a
 public instance can be edited by anyone is reporting the documented behaviour.

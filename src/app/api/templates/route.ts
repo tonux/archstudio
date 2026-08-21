@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
-import { SERVICES_VERIFIED_ON, templateSummaries } from '@/lib/templates';
+import { contentFromAdmin } from '@/lib/admin/flags';
+import { projectTemplateSummaries } from '@/lib/admin/project-templates';
+import { resolveServices, resolveTemplateSummaries } from '@/lib/templates/resolve.server';
 
 export const runtime = 'nodejs';
 
@@ -7,8 +9,10 @@ export const runtime = 'nodejs';
  * The picker needs to switch language without a second round trip, and the full
  * templates are far too large to ship to the browser. */
 export async function GET() {
+  const architecture = resolveTemplateSummaries();
+  const project = contentFromAdmin() ? projectTemplateSummaries() : [];
   return NextResponse.json(
-    { verifiedOn: SERVICES_VERIFIED_ON, templates: templateSummaries() },
+    { verifiedOn: resolveServices().verifiedOn, templates: [...project, ...architecture] },
     { headers: { 'Cache-Control': 'no-store' } }
   );
 }

@@ -192,6 +192,8 @@ export interface Template {
 /** What the picker needs. No component bodies, no editorial content. */
 export interface TemplateSummary {
   id: string;
+  /** Architecture templates resolve per cloud target; project templates are full snapshots. */
+  kind?: 'architecture' | 'project';
   icon: string;
   accent: string;
   accentDark: string;

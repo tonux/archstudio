@@ -25,7 +25,7 @@ after(() => {
 /** Exact counts from `legoCatalogCounts()` after a fresh seed. */
 const EXPECTED_COUNTS = {
   lego_scopes: 18,
-  lego_bricks: 26,
+  lego_bricks: 40,
   lego_intents: 12,
   lego_variants: 154,
   lego_technology_descriptions: 38,
@@ -79,4 +79,29 @@ test('FR snapshot exposes Produit scope and a French identity.role distinct from
     fr.bricks.identity.role,
     'Prouve qui sont les appelants et émet des jetons que d’autres services font confiance.'
   );
+});
+
+test('concernTags for identity brick are loaded from SQLite after seed', () => {
+  R.ensureLegoCatalog();
+  const tagCount = DB.plain<{ count: number }>(
+    DB.db.prepare('SELECT count(*) AS count FROM lego_brick_concern_tags WHERE catalog_version=? AND brick_id=?')
+      .get(R.LEGO_CATALOG_VERSION, 'identity')
+  ).count;
+  assert.ok(tagCount >= 2, 'identity concern tags are persisted in lego_brick_concern_tags');
+
+  const snap = R.legoCatalog('en');
+  assert.deepEqual(snap.bricks.identity?.concernTags, ['iam', 'security']);
+});
+
+test('legoCatalog retains locked intent and variant counts from DB', () => {
+  const snap = R.legoCatalog('en');
+  assert.equal(snap.intents.length, 12);
+  assert.equal(snap.variants.length, 154);
+});
+
+test('purpose is exposed on bricks and falls back to role when unset', () => {
+  const snap = R.legoCatalog('en');
+  const identity = snap.bricks.identity;
+  assert.ok(identity?.purpose);
+  assert.equal(identity?.purpose, identity?.role);
 });

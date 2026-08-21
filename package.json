@@ -11,7 +11,8 @@
     "start": "next start",
     "reset": "node -e \"require('fs').rmSync('data',{recursive:true,force:true});console.log('database removed — it will be recreated and re-seeded on next start')\"",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test \"src/**/*.test.ts\""
+    "test": "tsx --test \"src/**/*.test.ts\"",
+    "test:admin": "tsx --test \"src/lib/admin/**/*.test.ts\" \"src/lib/lego/admin-catalog.test.ts\""
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.117.1",

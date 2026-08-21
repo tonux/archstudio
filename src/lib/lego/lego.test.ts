@@ -73,6 +73,8 @@ test('placement derives metadata from snapshot', () => {
   const placed = placeVariant(en, { variantId: 'cognito', existingIds: [] });
   assert.equal(placed.brick, 'identity');
   assert.equal(placed.role, en.bricks.identity.role);
+  assert.equal(placed.purpose, en.bricks.identity.purpose);
+  assert.deepEqual(placed.concernTags, ['iam', 'security']);
   assert.equal(placed.icon, 'lock');
   const prose = brickProse(fr, 'identity');
   assert.equal(prose.role, fr.bricks.identity.role);
@@ -100,6 +102,14 @@ test('plates receive their mappability and placements from snapshot', () => {
   assert(doc.technologies.some(technology => technology.name === 'Next.js'));
   const invalid = blankArchitecture('Atomic');
   assert.equal(insertPlate(invalid, { pattern, bindings: [PLATE_CREATE] }, en), null);
+});
+
+test('placeVariant tolerates bricks without concernTags (stale catalog cache)', () => {
+  const stale = structuredClone(en);
+  delete (stale.bricks.identity as { concernTags?: unknown }).concernTags;
+  const component = placeVariant(stale, { variantId: 'auth0', existingIds: [] });
+  assert.equal(component.concernTags, undefined);
+  assert.ok(component.purpose);
 });
 
 test('plate wires consecutive surviving steps across a skipped binding', () => {

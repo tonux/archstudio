@@ -210,6 +210,8 @@ const ROLE_SCOPES: Record<string, readonly string[]> = {
   staticHosting: ['front', 'edge'],
   cdn: ['edge'],
   apiGateway: ['edge', 'app', 'services'],
+  waf: ['edge', 'tenancy'],
+  loadBalancer: ['edge', 'app'],
   identity: ['tenancy', 'vendor'],
   functions: ['app', 'services', 'modules'],
   containers: ['app', 'services'],
@@ -220,46 +222,85 @@ const ROLE_SCOPES: Record<string, readonly string[]> = {
   nosql: ['data', 'index'],
   cache: ['data', 'quality'],
   objects: ['data', 'ingestion'],
+  warehouse: ['data', 'index'],
   search: ['data', 'index'],
   vector: ['data', 'index'],
   queue: ['data', 'bus', 'processing'],
   pubsub: ['data', 'bus', 'producers'],
   stream: ['data', 'bus', 'processing'],
+  streamProcessing: ['data', 'processing', 'destinations'],
+  schemaRegistry: ['data', 'bus', 'quality'],
+  embeddings: ['answering', 'index'],
   llm: ['answering'],
+  rerank: ['answering', 'index'],
+  guardrails: ['answering', 'quality'],
+  ocr: ['ingestion', 'processing'],
+  secrets: ['platform', 'tenancy'],
+  config: ['platform', 'quality'],
   observability: ['platform', 'quality'],
   tracing: ['platform', 'quality'],
+  backup: ['platform', 'data'],
+  registry: ['platform'],
   cicd: ['platform'],
   gitops: ['platform'],
+  audit: ['platform', 'quality'],
   email: ['vendor']
 };
 
 const ICONS: Record<string, string> = {
   webApp: 'web', mobileApp: 'mobile', apiGateway: 'plug', cdn: 'globe',
+  waf: 'shield', loadBalancer: 'route',
   staticHosting: 'web', identity: 'lock', functions: 'bolt', containers: 'docker',
   kubernetes: 'layers', jobs: 'clock', orchestration: 'hub', sql: 'db', nosql: 'cube',
-  cache: 'bolt', objects: 'save', search: 'search', vector: 'hub', queue: 'box',
-  pubsub: 'bell', stream: 'chart', llm: 'ai', observability: 'chart', email: 'mail',
-  cicd: 'git', gitops: 'cloudup'
+  cache: 'bolt', objects: 'save', warehouse: 'chart', search: 'search', vector: 'hub',
+  queue: 'box', pubsub: 'bell', stream: 'chart', streamProcessing: 'cog',
+  schemaRegistry: 'layers', embeddings: 'ai', llm: 'ai', rerank: 'layers',
+  guardrails: 'shield', ocr: 'scan', secrets: 'key', config: 'flag',
+  observability: 'chart', tracing: 'eye', backup: 'cloudup', registry: 'docker',
+  email: 'mail', cicd: 'git', gitops: 'cloudup', audit: 'file'
 };
 
 const LAYERS: Record<string, string> = {
   webApp: 'clients', mobileApp: 'clients', cdn: 'edge', staticHosting: 'edge',
-  apiGateway: 'edge', identity: 'edge', functions: 'services', containers: 'services',
-  kubernetes: 'services', jobs: 'services', orchestration: 'services', llm: 'services',
-  sql: 'data', nosql: 'data', cache: 'data', objects: 'data', search: 'data',
-  vector: 'data', queue: 'data', pubsub: 'data', stream: 'data',
-  observability: 'platform', email: 'platform', cicd: 'platform', gitops: 'platform'
+  apiGateway: 'edge', waf: 'edge', loadBalancer: 'edge', identity: 'edge',
+  functions: 'services', containers: 'services', kubernetes: 'services',
+  jobs: 'services', orchestration: 'services', streamProcessing: 'services',
+  embeddings: 'services', llm: 'services', rerank: 'services', guardrails: 'services',
+  ocr: 'services',
+  sql: 'data', nosql: 'data', cache: 'data', objects: 'data', warehouse: 'data',
+  search: 'data', vector: 'data', queue: 'data', pubsub: 'data', stream: 'data',
+  schemaRegistry: 'data',
+  secrets: 'platform', config: 'platform', observability: 'platform', tracing: 'platform',
+  backup: 'platform', registry: 'platform', email: 'platform', cicd: 'platform',
+  gitops: 'platform', audit: 'platform'
 };
 
 const SCOPES: Record<string, string> = {
-  identity: 'vendor', email: 'vendor', observability: 'platform', cicd: 'platform', gitops: 'platform'
+  identity: 'vendor', email: 'vendor',
+  secrets: 'platform', config: 'platform', observability: 'platform', tracing: 'platform',
+  backup: 'platform', registry: 'platform', cicd: 'platform', gitops: 'platform', audit: 'platform'
 };
 
 const CAPABILITIES: Record<string, string[]> = {
-  webApp: ['SPA'], mobileApp: ['SPA'], identity: ['OIDC', 'JWT'], llm: ['LLM'],
+  webApp: ['SPA'], mobileApp: ['SPA'], identity: ['OIDC', 'JWT', 'SAML', 'SCIM'],
+  waf: ['WAF'], loadBalancer: ['TLS', 'Health checks'],
   sql: ['Relational DB'], nosql: ['Document store', 'Key-value'], cache: ['Key-value'],
-  objects: ['Object storage'], queue: ['Queue', 'Dead-letter queue'], pubsub: ['Event bus', 'Dead-letter queue'],
-  apiGateway: ['HTTP API', 'JWT', 'WAF'], functions: ['Functions', 'Worker']
+  objects: ['Object storage'], warehouse: ['Columnar / warehouse'],
+  search: ['Full-text search'], vector: ['Vector search', 'Full-text search'],
+  queue: ['Queue', 'Dead-letter queue'], pubsub: ['Event bus', 'Dead-letter queue'],
+  stream: ['Event log / stream'], streamProcessing: ['Stream processing'],
+  schemaRegistry: ['Schema contract'],
+  embeddings: ['Embedding model'], llm: ['LLM'], rerank: ['Rerank'],
+  guardrails: ['Content safety', 'PII detection'], ocr: ['OCR'],
+  secrets: ['Secrets'], config: ['Config', 'Secrets'],
+  observability: ['Logs', 'Metrics', 'Alerts'], tracing: ['Traces', 'Metrics'],
+  backup: ['Backup / PITR'], registry: ['OCI registry', 'Image scanning'],
+  audit: ['Audit log'],
+  apiGateway: ['HTTP API', 'JWT', 'WAF'], functions: ['Functions', 'Worker'],
+  containers: ['Container', 'HTTP API', 'Worker'], kubernetes: ['Kubernetes', 'Container'],
+  jobs: ['Scheduler', 'Worker'], orchestration: ['Workflow'],
+  staticHosting: ['SPA', 'CDN'], cdn: ['CDN', 'TLS', 'WAF'],
+  cicd: ['CI', 'Infrastructure as code'], gitops: ['GitOps', 'CI'], email: ['Email']
 };
 
 const BRICK_METADATA: Record<string, { features: string[]; notes: string[] }> = {
@@ -288,7 +329,21 @@ const BRICK_METADATA: Record<string, { features: string[]; notes: string[] }> = 
   tracing: { features: ['Trace requests across service boundaries', 'Expose latency and failure paths'], notes: ['Sampling and data-retention policy need explicit ownership.'] },
   email: { features: ['Send transactional messages', 'Deliver service notifications'], notes: ['Sender reputation and delivery failures require monitoring.'] },
   cicd: { features: ['Build and test changes', 'Deliver deployable artifacts'], notes: ['Deployment approvals and rollback policy remain product decisions.'] },
-  gitops: { features: ['Reconcile declared infrastructure state', 'Promote changes through version control'], notes: ['Repository access and reconciliation boundaries need governance.'] }
+  gitops: { features: ['Reconcile declared infrastructure state', 'Promote changes through version control'], notes: ['Repository access and reconciliation boundaries need governance.'] },
+  waf: { features: ['Block common web attacks (injection, bots, bad IPs)', 'Apply request rules before traffic reaches apps'], notes: ['False positives can break legit clients — tune rules with observability.'] },
+  loadBalancer: { features: ['Distribute traffic across healthy instances', 'Health-check backends and fail over'], notes: ['Health checks and sticky sessions must match how the app actually behaves.'] },
+  warehouse: { features: ['Run analytical queries over large historical datasets', 'Separate analytics load from the operational database'], notes: ['ETL freshness and PII in analytics copies are usual compliance gaps.'] },
+  streamProcessing: { features: ['Transform or aggregate streams in near real time', 'Emit derived events or write sinks continuously'], notes: ['Watermarks, late data, and state checkpoints are the hard parts.'] },
+  schemaRegistry: { features: ['Version event/message schemas centrally', 'Prevent incompatible producers/consumers'], notes: ['Without enforced compatibility checks, the registry becomes documentation theater.'] },
+  embeddings: { features: ['Turn text or other inputs into vectors', 'Feed vector search and RAG pipelines'], notes: ['Model and chunking choices dominate quality — brick alone is incomplete.'] },
+  rerank: { features: ['Reorder retrieved candidates by relevance to a query', 'Improve RAG/search quality after a first retrieval'], notes: ['Adds latency and cost; measure lift vs plain retrieval.'] },
+  guardrails: { features: ['Filter unsafe or policy-breaking model inputs/outputs', 'Reduce prompt-injection and toxic content risk'], notes: ['Rules drift; false blocks hurt UX — need monitoring and allowlists.'] },
+  ocr: { features: ['Extract text from images and PDFs', 'Feed downstream search, RAG, or workflows'], notes: ['Quality varies by language, layout, and scan quality.'] },
+  secrets: { features: ['Store API keys and credentials outside the repo', 'Inject secrets into runtimes at deploy/runtime'], notes: ['Rotation and least-privilege grants are usually the unfinished part.'] },
+  config: { features: ['Centralize non-secret app settings by environment', 'Change flags/settings without rebuilding images when possible'], notes: ['Config vs secrets boundary is often blurred in practice.'] },
+  backup: { features: ['Take recoverable copies of stateful data', 'Support restore and retention policies'], notes: ['Untested restores are a known gap — schedule restore drills.'] },
+  registry: { features: ['Store versioned container (or artifact) images', 'Feed deploy pipelines with immutable artifacts'], notes: ['Image retention, scanning, and promotion between envs are often missing.'] },
+  audit: { features: ['Record who did what, when, for security and compliance', 'Keep tamper-resistant operational history'], notes: ['Retention, immutability, and who can query audits are policy gaps.'] }
 };
 
 const ROLE_PHRASES: Record<string, string> = {
@@ -317,7 +372,65 @@ const ROLE_PHRASES: Record<string, string> = {
   tracing: 'Follows a request across services to find latency and failures.',
   email: 'Sends transactional email to users.',
   cicd: 'Builds, tests, and deploys changes through an automated pipeline.',
-  gitops: 'Keeps cluster desired state in git and reconciles toward it.'
+  gitops: 'Keeps cluster desired state in git and reconciles toward it.',
+  waf: 'Request filter that blocks common web attacks before apps see traffic.',
+  loadBalancer: 'Distributes traffic across instances and terminates or forwards TLS.',
+  warehouse: 'Analytical store optimized for reporting and large scans, not OLTP.',
+  streamProcessing: 'Transforms or aggregates event streams in near real time.',
+  schemaRegistry: 'Holds shared event/API schemas and compatibility rules.',
+  embeddings: 'Turns text or media into vectors for retrieval and similarity.',
+  rerank: 'Reorders retrieval candidates so the best context reaches the LLM.',
+  guardrails: 'Filters prompts and outputs for safety, PII, and policy.',
+  ocr: 'Extracts text from images and scanned documents.',
+  secrets: 'Stores and delivers credentials and keys to runtimes safely.',
+  config: 'Centralizes non-secret configuration for services and feature flags.',
+  backup: 'Copies and restores durable data for disaster recovery.',
+  registry: 'Stores container (or package) images for deployable artifacts.',
+  audit: 'Records who did what and when for security and compliance evidence.'
+};
+
+
+const CONCERN_TAGS: Record<string, readonly import('../document/concerns').ConcernTag[]> = {
+  webApp: ['network'],
+  mobileApp: ['network'],
+  apiGateway: ['network', 'security'],
+  cdn: ['network'],
+  staticHosting: ['network'],
+  identity: ['iam', 'security'],
+  functions: ['ops'],
+  containers: ['ops'],
+  kubernetes: ['ops', 'tenancy'],
+  jobs: ['ops'],
+  orchestration: ['ops'],
+  sql: ['data', 'dr'],
+  nosql: ['data', 'dr'],
+  cache: ['data'],
+  objects: ['data'],
+  search: ['data'],
+  vector: ['data'],
+  queue: ['ops', 'data'],
+  pubsub: ['ops', 'data'],
+  stream: ['ops', 'data'],
+  llm: ['governance', 'cost'],
+  observability: ['observability', 'ops'],
+  tracing: ['observability'],
+  email: ['ops'],
+  cicd: ['ops'],
+  gitops: ['ops', 'governance'],
+  waf: ['security', 'network'],
+  loadBalancer: ['network', 'ops'],
+  warehouse: ['data', 'cost'],
+  streamProcessing: ['ops', 'data'],
+  schemaRegistry: ['governance', 'data'],
+  embeddings: ['governance', 'cost'],
+  rerank: ['governance', 'cost'],
+  guardrails: ['governance', 'security'],
+  ocr: ['data', 'governance'],
+  secrets: ['security', 'ops'],
+  config: ['ops', 'governance'],
+  backup: ['dr', 'data'],
+  registry: ['ops', 'security'],
+  audit: ['governance', 'security']
 };
 
 const FRENCH_ROLE_PHRASES: Record<string, string> = {
@@ -346,7 +459,21 @@ const FRENCH_ROLE_PHRASES: Record<string, string> = {
   tracing: 'Suit une requête à travers les services pour trouver latence et pannes.',
   email: 'Envoie des emails transactionnels aux utilisateurs.',
   cicd: 'Build, teste et déploie les changements via un pipeline automatisé.',
-  gitops: 'Garde l’état désiré du cluster dans git et réconcilie vers lui.'
+  gitops: 'Garde l’état désiré du cluster dans git et réconcilie vers lui.',
+  waf: 'Filtre de requêtes qui bloque les attaques web courantes avant les apps.',
+  loadBalancer: 'Répartit le trafic entre instances et termine ou relaie le TLS.',
+  warehouse: 'Store analytique optimisé reporting et grands scans, pas OLTP.',
+  streamProcessing: 'Transforme ou agrège des flux d’événements en quasi temps réel.',
+  schemaRegistry: 'Détient les schémas d’événements/API partagés et les règles de compatibilité.',
+  embeddings: 'Transforme texte ou média en vecteurs pour retrieval et similarité.',
+  rerank: 'Réordonne les candidats de retrieval pour que le meilleur contexte atteigne le LLM.',
+  guardrails: 'Filtre prompts et sorties pour sûreté, PII et politique.',
+  ocr: 'Extrait le texte d’images et de documents scannés.',
+  secrets: 'Stocke et délivre identifiants et clés aux runtimes en sécurité.',
+  config: 'Centralise la configuration non secrète des services et feature flags.',
+  backup: 'Copie et restaure les données durables pour la reprise après sinistre.',
+  registry: 'Stocke les images conteneur (ou packages) pour artefacts déployables.',
+  audit: 'Enregistre qui a fait quoi et quand pour preuves sécu et conformité.'
 };
 
 const FRENCH_BRICK_METADATA: Record<string, { features: string[]; notes: string[] }> = {
@@ -384,7 +511,21 @@ const FRENCH_BRICK_METADATA: Record<string, { features: string[]; notes: string[
   tracing: { features: ['Tracer les requêtes entre frontières de services', 'Exposer latence et chemins d’échec'], notes: ['Sampling et rétention des données doivent être décidés.'] },
   email: { features: ['Envoyer des messages transactionnels', 'Livrer des notifications de service'], notes: ['Réputation expéditeur et échecs de livraison demandent du monitoring.'] },
   cicd: { features: ['Builder et tester les changements', 'Livrer des artefacts déployables'], notes: ['Approbations de déploiement et rollback restent des décisions produit.'] },
-  gitops: { features: ['Réconcilier l’état infra déclaré', 'Promouvoir les changements via git'], notes: ['Accès dépôt et frontières de réconciliation demandent une gouvernance.'] }
+  gitops: { features: ['Réconcilier l’état infra déclaré', 'Promouvoir les changements via git'], notes: ['Accès dépôt et frontières de réconciliation demandent une gouvernance.'] },
+  waf: { features: ['Bloquer les attaques web courantes (injection, bots, IPs)', 'Appliquer des règles avant que le trafic n’atteigne les apps'], notes: ['Les faux positifs peuvent casser des clients légitimes — régler avec de l’observabilité.'] },
+  loadBalancer: { features: ['Répartir le trafic entre instances saines', 'Surveiller la santé des backends et basculer'], notes: ['Health checks et sessions sticky doivent coller au comportement réel de l’app.'] },
+  warehouse: { features: ['Lancer des requêtes analytiques sur de gros historiques', 'Séparer la charge analytique de la base opérationnelle'], notes: ['Fraîcheur ETL et PII dans les copies analytiques sont des trous conformité habituels.'] },
+  streamProcessing: { features: ['Transformer/agréger des flux en quasi temps réel', 'Émettre des événements dérivés ou écrire des sinks en continu'], notes: ['Watermarks, données tardives et checkpoints d’état sont le dur.'] },
+  schemaRegistry: { features: ['Versionner centralement les schémas d’événements/messages', 'Éviter producteurs/consommateurs incompatibles'], notes: ['Sans contrôles de compatibilité imposés, le registry devient du théâtre documentaire.'] },
+  embeddings: { features: ['Transformer texte ou autres entrées en vecteurs', 'Alimenter recherche vectorielle et pipelines RAG'], notes: ['Choix de modèle et de découpage dominent la qualité — la brique seule est incomplète.'] },
+  rerank: { features: ['Réordonner les candidats récupérés selon la pertinence', 'Améliorer la qualité RAG/search après un premier retrieval'], notes: ['Ajoute latence et coût ; mesurer le gain vs retrieval simple.'] },
+  guardrails: { features: ['Filtrer entrées/sorties modèle dangereuses ou hors politique', 'Réduire injection de prompts et contenu toxique'], notes: ['Les règles dérivent ; les faux blocages blessent l’UX — monitoring et allowlists.'] },
+  ocr: { features: ['Extraire le texte d’images et de PDF', 'Alimenter search, RAG ou workflows en aval'], notes: ['La qualité varie selon langue, mise en page et qualité de scan.'] },
+  secrets: { features: ['Stocker clés API et credentials hors du dépôt', 'Injecter les secrets dans les runtimes au deploy/runtime'], notes: ['Rotation et grants least-privilege sont souvent la partie inachevée.'] },
+  config: { features: ['Centraliser les settings non secrets par environnement', 'Changer flags/settings sans rebuild d’image quand possible'], notes: ['La frontière config vs secrets est souvent floue en pratique.'] },
+  backup: { features: ['Prendre des copies récupérables des données à état', 'Supporter restore et politiques de rétention'], notes: ['Restores non testés = trou connu — planifier des drills de restore.'] },
+  registry: { features: ['Stocker des images de conteneurs (ou artefacts) versionnées', 'Alimenter les pipelines avec des artefacts immuables'], notes: ['Rétention d’images, scan et promotion entre envs souvent absents.'] },
+  audit: { features: ['Enregistrer qui a fait quoi, quand, pour sécurité et conformité', 'Garder un historique opérationnel difficile à altérer'], notes: ['Rétention, immutabilité et qui peut requêter les audits sont des trous de politique.'] }
 };
 
 const ROLE_CAPABILITIES: Record<string, { en: string; fr: string }> = {
@@ -413,7 +554,21 @@ const ROLE_CAPABILITIES: Record<string, { en: string; fr: string }> = {
   tracing: { en: 'distributed request tracing', fr: 'le traçage distribué des requêtes' },
   email: { en: 'transactional email delivery', fr: 'l’envoi d’e-mails transactionnels' },
   cicd: { en: 'automated build, test, and delivery', fr: 'l’automatisation du build, des tests et de la livraison' },
-  gitops: { en: 'declarative infrastructure reconciliation', fr: 'la réconciliation déclarative de l’infrastructure' }
+  gitops: { en: 'declarative infrastructure reconciliation', fr: 'la réconciliation déclarative de l’infrastructure' },
+  waf: { en: 'web application firewall protection', fr: 'la protection par pare-feu applicatif web' },
+  loadBalancer: { en: 'traffic distribution and TLS termination', fr: 'la répartition de trafic et la terminaison TLS' },
+  warehouse: { en: 'analytical data warehousing', fr: 'l’entrepôt de données analytique' },
+  streamProcessing: { en: 'real-time stream transformation', fr: 'la transformation de flux en temps réel' },
+  schemaRegistry: { en: 'centralized schema governance', fr: 'la gouvernance centralisée des schémas' },
+  embeddings: { en: 'vector embedding generation', fr: 'la génération d’embeddings vectoriels' },
+  rerank: { en: 'retrieval result reranking', fr: 'le reranking des résultats de retrieval' },
+  guardrails: { en: 'AI safety and policy filtering', fr: 'le filtrage de sûreté et de politique IA' },
+  ocr: { en: 'optical character recognition', fr: 'la reconnaissance optique de caractères' },
+  secrets: { en: 'secure credential storage and delivery', fr: 'le stockage et la délivrance sécurisés de credentials' },
+  config: { en: 'centralized configuration management', fr: 'la gestion centralisée de configuration' },
+  backup: { en: 'durable data backup and restore', fr: 'la sauvegarde et la restauration de données durables' },
+  registry: { en: 'container image registry', fr: 'le registre d’images conteneur' },
+  audit: { en: 'security and compliance audit logging', fr: 'la journalisation d’audit sécurité et conformité' }
 };
 
 const TECHNOLOGY_DESCRIPTIONS: Record<string, { en: string; fr: string }> = {
@@ -477,7 +632,7 @@ const DEPENDENCIES: readonly LegoDependencySuggestion[] = [
   { from: 'audit', to: 'objects', strength: 'optional', why_en: 'Audit trails are often archived to object storage.', why_fr: 'Les pistes d’audit partent souvent en object storage.', protocol_id: 'object', kind: 'sync' }
 ];
 
-export const CATALOG_SEED = { intents: INTENTS, variants: VARIANTS, scopes: LOCKED_SCOPES, scopeAliases: SCOPE_ALIASES, roleScopes: ROLE_SCOPES, icons: ICONS, layers: LAYERS, defaultScopes: SCOPES, capabilities: CAPABILITIES, brickMetadata: BRICK_METADATA, frenchBrickMetadata: FRENCH_BRICK_METADATA, rolePhrases: ROLE_PHRASES, frenchRolePhrases: FRENCH_ROLE_PHRASES, roleCapabilities: ROLE_CAPABILITIES, technologyDescriptions: TECHNOLOGY_DESCRIPTIONS, dependencies: DEPENDENCIES } as const;
+export const CATALOG_SEED = { intents: INTENTS, variants: VARIANTS, scopes: LOCKED_SCOPES, scopeAliases: SCOPE_ALIASES, roleScopes: ROLE_SCOPES, icons: ICONS, layers: LAYERS, defaultScopes: SCOPES, capabilities: CAPABILITIES, brickMetadata: BRICK_METADATA, frenchBrickMetadata: FRENCH_BRICK_METADATA, rolePhrases: ROLE_PHRASES, frenchRolePhrases: FRENCH_ROLE_PHRASES, concernTags: CONCERN_TAGS, roleCapabilities: ROLE_CAPABILITIES, technologyDescriptions: TECHNOLOGY_DESCRIPTIONS, dependencies: DEPENDENCIES } as const;
 
 export function buildCatalogSnapshot(lang: LegoLanguage = 'en'): LegoCatalogSnapshot {
   const metadata = lang === 'fr' ? CATALOG_SEED.frenchBrickMetadata : CATALOG_SEED.brickMetadata;
@@ -489,6 +644,8 @@ export function buildCatalogSnapshot(lang: LegoLanguage = 'en'): LegoCatalogSnap
     defaultScope: CATALOG_SEED.defaultScopes[id] || 'product',
     capabilities: [...(CATALOG_SEED.capabilities[id] || [])],
     role: phrases[id] || id,
+    purpose: phrases[id] || id,
+    concernTags: [...(CATALOG_SEED.concernTags[id] || [])],
     responsibilities: [...(metadata[id]?.features || [])],
     notes: [...(metadata[id]?.notes || [])],
     affinities: [...(CATALOG_SEED.roleScopes[id] || [])],

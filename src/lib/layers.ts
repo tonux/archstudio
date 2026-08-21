@@ -2,7 +2,8 @@
 
 type Lang = 'en' | 'fr';
 
-const LAYER_DISPLAY: Record<string, { en: string; fr: string }> = {
+/** Pack layer ids → bilingual display labels (admin system_copy seed source). */
+export const LAYER_DISPLAY: Record<string, { en: string; fr: string }> = {
   clients: { en: 'Clients', fr: 'Clients' },
   edge: { en: 'Edge & API', fr: 'Edge & API' },
   services: { en: 'Services', fr: 'Services' },
@@ -20,7 +21,12 @@ const LAYER_DISPLAY: Record<string, { en: string; fr: string }> = {
   destinations: { en: 'Destinations', fr: 'Destinations' }
 };
 
-/** Title-case free-form names; pack ids resolve to locked labels. */
+/**
+ * Title-case free-form names; pack ids resolve to locked labels.
+ * Code fallback for client canvas / place.ts. Server paths that need
+ * published system_copy overrides should call resolveLayerLabel from
+ * system-copy.resolve.server.ts (CONTENT_FROM_ADMIN=1 + published).
+ */
 export function displayLayerLabel(idOrName: string, lang: Lang = 'en'): string {
   if (!idOrName) return idOrName;
   const known = LAYER_DISPLAY[idOrName];

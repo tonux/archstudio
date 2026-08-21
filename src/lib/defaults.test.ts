@@ -168,3 +168,17 @@ test('deleting a component keeps empty authored flows', () => {
   assert.equal(doc.components[0].links, undefined);
   assert.deepEqual(doc.components[0].deps, []);
 });
+
+
+test('backfills concernTags from brick on normalize', () => {
+  const next = normalizeArchitecture({
+    meta: { name: 'Legacy', lang: 'fr', tagline: '', title: '', intro: '', facts: [] },
+    groups: [{ id: 'core', name: 'Core' }],
+    layers: [{ id: 'edge', name: 'Edge' }],
+    components: [{ id: 'auth', name: 'Auth0', group: 'core', layer: 'edge', brick: 'identity' }]
+  });
+  const auth = next.components[0];
+  assert.ok(auth.concernTags?.includes('iam'));
+  assert.ok(auth.purpose);
+  assert.ok(next.sections.some(s => s.id === 'add-iam' && s.doc?.gated));
+});

@@ -8,7 +8,7 @@ This page records current constraints. It is not a release chronology.
 
 | Area | Implemented | Current limit |
 |---|---|---|
-| Catalog persistence | Versioned transactional SQLite seed and runtime reads | Authoring remains in `seed-data.ts`; no catalog admin UI |
+| Catalog persistence | Versioned transactional SQLite seed and runtime reads; **admin CMS** at `/admin` for draft→publish | Authoring can still start from `seed-data.ts` for locked seeds; runtime prefers published admin when `CONTENT_FROM_ADMIN=1` |
 | Catalog API | Localized English/French snapshots | Browser memoization lasts for the page lifetime |
 | Placement taxonomy | 12 intents, optional shapes, 4 modes, compatible scopes, 154 variants | Runtime seed covers 26 of the 40 conceptual bricks |
 | Placement Wizard | Intent → shape → mode → scope → variant; targeted Add & link keeps the requested brick in-filter | Provider choice remains automatic inside targeted Add & link |
@@ -20,14 +20,14 @@ This page records current constraints. It is not a release chronology.
 
 ## Runtime catalog boundary
 
-The complete [CATALOG.md](./CATALOG.md) defines 38 infrastructure roles plus `webApp` and `mobileApp`. The versioned SQLite seed currently exposes 26 bricks. Repository tests enforce the runtime count, so a documented brick is not automatically available to the wizard or a flow plate.
+The complete [CATALOG.md](./CATALOG.md) defines 38 infrastructure roles plus `webApp` and `mobileApp`. The versioned SQLite seed currently exposes 40 bricks (tests enforce the count). Repository tests enforce the runtime count, so a documented brick is not automatically available to the wizard or a flow plate unless it is in the seed / admin catalog.
 
-Catalog changes remain code-first:
+Catalog changes (2026-08 admin CMS):
 
-- `src/lib/lego/seed-data.ts` contains the authoring seed.
-- `LEGO_CATALOG_VERSION` controls whether a new version is inserted.
-- Existing rows for a seeded version are not updated by editing the seed alone.
-- The API reads SQLite; it does not read Markdown or parse the catalog documents.
+- **Operator path:** `/admin` → Catalogue Lego / Templates / ADD / Flows / Locale / Publish — draft → publish; no content PR required for day-to-day edits.
+- **Seed path:** `src/lib/lego/seed-data.ts` + `LEGO_CATALOG_VERSION` still bootstrap locked rows; `ensureLegoCatalog` re-seeds deleted locked ids.
+- **Runtime flag:** `CONTENT_FROM_ADMIN=1` makes project/template/flow/section resolve paths read **published** admin JSON (see `src/lib/templates/resolve.server.ts`, `src/lib/admin/*`).
+- Spec / ISA (complete): [`../add/README.md`](../add/README.md).
 
 ## Placement constraints
 
@@ -66,7 +66,7 @@ Catalog changes remain code-first:
 - Offer provider selection for each created flow step.
 - Add an explicit payment/commerce intent and PSP brick.
 - Derive inventories automatically from the versioned runtime catalog.
-- Add catalog administration and migration tooling.
+- ~~Add catalog administration and migration tooling~~ — **shipped** as `/admin` CMS (ISA complete 2026-08-20). Follow-ups: hydrate Q2 card density ([`../add/CONTRAT-qualite-acme.md`](../add/CONTRAT-qualite-acme.md) B2), optional `ADMIN_TOKEN` / body size if network-exposed.
 - Prune stale stack entries safely.
 
 The locked contracts remain authoritative for ids and semantics. Deferred work must preserve the distinction between a single capability brick and a multi-step flow pattern.

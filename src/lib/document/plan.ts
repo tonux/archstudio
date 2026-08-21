@@ -11,14 +11,21 @@
  */
 
 import { componentsWithEnvs, environmentsInUse } from '../environments';
-import type { Architecture, Flow, Section } from '../types';
+import type { Architecture, ArchitectureDecision, Flow, Section } from '../types';
 import { t, type L10n, type Lang } from '../templates/types';
+import { aggregateConcerns, deriveGates } from './concerns';
+import { hydratePresetSection } from './hydrate';
+import { PRESET_SECTION_IDS, presetSectionForId } from './preset';
 
 /* ------------------------------------------------------------------- model */
 
 export type DocBody =
   /** meta.intro, the header facts, and the principle callout. */
   | { kind: 'intro' }
+  /** Scopes and building blocks — C4 context without a second diagram. */
+  | { kind: 'context' }
+  /** Index of architecture decision records on the canvas. */
+  | { kind: 'adr-index'; decisions: ArchitectureDecision[] }
   | { kind: 'diagram' }
   /** Every component, by layer — the reference table for the diagram. */
   | { kind: 'inventory' }
@@ -26,6 +33,8 @@ export type DocBody =
   | { kind: 'environments' }
   | { kind: 'section'; section: Section }
   | { kind: 'flow'; flow: Flow }
+  /** Product glossary — one row per placed component. */
+  | { kind: 'glossary'; names: string[] }
   | { kind: 'stack' };
 
 export interface DocEntry {
@@ -67,6 +76,21 @@ const SPINE = ['1', '2', '3', '4', '5', '6'];
 const APPENDIX = '6';
 
 const GENERATED: Record<string, L10n> = {
+  context: { en: 'Context', fr: 'Contexte' },
+  contextSub: {
+    en: 'Scopes and building blocks that sit around the product.',
+    fr: 'Périmètres et blocs qui entourent le produit.'
+  },
+  adrIndex: { en: 'Architecture decision records', fr: 'Décisions d\'architecture' },
+  adrIndexSub: {
+    en: 'Recorded choices and their consequences.',
+    fr: 'Choix enregistrés et leurs conséquences.'
+  },
+  glossary: { en: 'Glossary', fr: 'Glossaire' },
+  glossarySub: {
+    en: 'Product terms used in this document.',
+    fr: 'Termes produit utilisés dans ce document.'
+  },
   inventory: { en: 'Component inventory', fr: 'Inventaire des composants' },
   inventorySub: {
     en: 'Every component on the diagram above, with the scope that owns it and the technologies it runs on.',
@@ -129,7 +153,39 @@ export function buildOutline(doc: Architecture): Outline {
   doc.sections.forEach((section, index) => {
     buckets.get(partOf(section))!.push({ section, key: slotKey(section.doc?.chapter), index });
   });
+
+  if (doc.components.length > 0) {
+    const gateIds = deriveGates(aggregateConcerns(doc));
+    const have = new Set(doc.sections.map(section => section.id));
+    PRESET_SECTION_IDS.forEach((id, presetIndex) => {
+      if (!gateIds.has(id) || have.has(id)) return;
+      const raw = presetSectionForId(id, lang);
+      if (!raw) return;
+      const section = hydratePresetSection(raw, doc, lang);
+      buckets.get(partOf(section))!.push({
+        section,
+        key: slotKey(section.doc?.chapter),
+        index: doc.sections.length + presetIndex
+      });
+    });
+  }
+
   buckets.forEach(list => list.sort((a, b) => compareKeys(a.key, b.key, a.index, b.index)));
+
+  const namedFlows = doc.flows.filter(f => f.name.trim());
+  const unnamedFlows = doc.flows.filter(f => !f.name.trim());
+  const canPromote = doc.components.length > 0
+    && namedFlows.length >= 1 && namedFlows.length <= 5;
+  const bodyFlows = canPromote ? namedFlows : [];
+  const appendixFlows = canPromote ? unnamedFlows : doc.flows;
+
+  const flowEntry = (flow: Flow): DocEntry => ({
+    number: '',
+    title: s(GENERATED.flow).replace('{name}', flow.name),
+    subtitle: flow.sub,
+    note: flow.note,
+    body: { kind: 'flow', flow }
+  });
 
   const sectionEntries = (part: string): DocEntry[] =>
     buckets.get(part)!.map(({ section }) => ({
@@ -141,17 +197,33 @@ export function buildOutline(doc: Architecture): Outline {
     }));
 
   const hasIntro = !!(doc.meta.intro || doc.meta.principle || doc.meta.facts?.length);
+  const hasContext = !!(doc.groups.length || doc.components.length);
   const parts: DocPart[] = SPINE.map(part => {
     const lead: DocBody[] = [];
     const entries: DocEntry[] = [];
 
-    if (part === '1' && hasIntro) lead.push({ kind: 'intro' });
+    if (part === '1') {
+      if (hasIntro) lead.push({ kind: 'intro' });
+      if (hasContext) {
+        entries.push({
+          number: '', title: s(GENERATED.context), subtitle: s(GENERATED.contextSub),
+          body: { kind: 'context' }
+        });
+      }
+      if (doc.decisions.length) {
+        entries.push({
+          number: '', title: s(GENERATED.adrIndex), subtitle: s(GENERATED.adrIndexSub),
+          body: { kind: 'adr-index', decisions: doc.decisions }
+        });
+      }
+    }
     if (part === '2' && doc.components.length) {
       lead.push({ kind: 'diagram' });
       entries.push({
         number: '', title: s(GENERATED.inventory), subtitle: s(GENERATED.inventorySub),
         body: { kind: 'inventory' }
       });
+      bodyFlows.forEach(flow => entries.push(flowEntry(flow)));
     }
 
     /* Part 4 is DevOps & delivery, and a table of addresses per environment is
@@ -169,13 +241,13 @@ export function buildOutline(doc: Architecture): Outline {
     entries.push(...sectionEntries(part));
 
     if (part === APPENDIX) {
-      doc.flows.forEach(flow => entries.push({
-        number: '',
-        title: s(GENERATED.flow).replace('{name}', flow.name),
-        subtitle: flow.sub,
-        note: flow.note,
-        body: { kind: 'flow', flow }
-      }));
+      appendixFlows.forEach(flow => entries.push(flowEntry(flow)));
+      if (doc.components.length) {
+        entries.push({
+          number: '', title: s(GENERATED.glossary), subtitle: s(GENERATED.glossarySub),
+          body: { kind: 'glossary', names: doc.components.map(c => c.name) }
+        });
+      }
       if (doc.technologies.length) entries.push({
         number: '', title: s(GENERATED.stack), subtitle: s(GENERATED.stackSub),
         body: { kind: 'stack' }

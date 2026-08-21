@@ -12,8 +12,9 @@ export const RICH_HINT = 'Inline <b>, <i>, <code> and <span class="mono"> render
 
 /* ------------------------------------------------------------------ inputs */
 
-export function Text({ label, value, onChange, placeholder, hint, mono }: {
+export function Text({ label, value, onChange, onBlur, placeholder, hint, mono }: {
   label?: string; value: string; onChange: (v: string) => void;
+  onBlur?: () => void;
   placeholder?: string; hint?: string; mono?: boolean;
 }) {
   return (
@@ -21,14 +22,15 @@ export function Text({ label, value, onChange, placeholder, hint, mono }: {
       {label && <span>{label}</span>}
       <input className="input" value={value} placeholder={placeholder}
         style={mono ? { fontFamily: 'ui-monospace, monospace', fontSize: 12 } : undefined}
-        onChange={e => onChange(e.target.value)} />
+        onChange={e => onChange(e.target.value)} onBlur={onBlur} />
       {hint && <div className="hint">{hint}</div>}
     </label>
   );
 }
 
-export function Area({ label, value, onChange, placeholder, hint, minHeight }: {
+export function Area({ label, value, onChange, onBlur, placeholder, hint, minHeight }: {
   label?: string; value: string; onChange: (v: string) => void;
+  onBlur?: () => void;
   placeholder?: string; hint?: string; minHeight?: number;
 }) {
   return (
@@ -36,7 +38,7 @@ export function Area({ label, value, onChange, placeholder, hint, minHeight }: {
       {label && <span>{label}</span>}
       <textarea className="textarea" value={value} placeholder={placeholder}
         style={minHeight ? { minHeight } : undefined}
-        onChange={e => onChange(e.target.value)} />
+        onChange={e => onChange(e.target.value)} onBlur={onBlur} />
       {hint && <div className="hint">{hint}</div>}
     </label>
   );

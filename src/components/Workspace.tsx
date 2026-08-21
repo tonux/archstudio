@@ -141,7 +141,7 @@ export default function Workspace({
   const roots = folders.filter(f => !f.parentId);
 
   return (
-    <DndContext
+    <DndContext id="archstudio-workspace-dnd"
       sensors={sensors}
       onDragStart={(e: DragStartEvent) => setDragging(projects.find(p => p.id === String(e.active.id)) || null)}
       onDragEnd={onDragEnd}
@@ -481,7 +481,8 @@ function NewProjectDialog({ folderId, busy, setBusy, onClose, onCreated }: {
 
   const chosen = templates?.find(t => t.id === pick) ?? null;
   const detail = templates?.find(t => t.id === (hover ?? pick)) ?? null;
-  const targets = chosen ? TARGETS.filter(t => chosen.supportedTargets.includes(t)) : [];
+  const isProjectTemplate = chosen?.kind === 'project';
+  const targets = chosen && !isProjectTemplate ? TARGETS.filter(t => chosen.supportedTargets.includes(t)) : [];
 
   async function submit() {
     if (!name.trim()) { setError('Give it a name first.'); return; }
@@ -493,7 +494,11 @@ function NewProjectDialog({ folderId, busy, setBusy, onClose, onCreated }: {
           name: name.trim(),
           description: description.trim() || undefined,
           folderId,
-          ...(chosen ? { templateId: chosen.id, target, lang } : {})
+          ...(chosen
+            ? chosen.kind === 'project'
+              ? { projectTemplateId: chosen.id }
+              : { templateId: chosen.id, target, lang }
+            : {})
         })
       });
       onCreated(p.id);
@@ -532,9 +537,30 @@ function NewProjectDialog({ folderId, busy, setBusy, onClose, onCreated }: {
               <div className="hint">No template available — a blank project still works.</div>
             ) : (
               <>
-                <div className="sect-label" style={{ marginTop: 6 }}>Or start from a template</div>
+                {templates.some(t => t.kind === 'project') && (
+                  <>
+                    <div className="sect-label" style={{ marginTop: 6 }}>Reference projects</div>
+                    <div className="tpl-grid">
+                      {templates.filter(t => t.kind === 'project').map(t => (
+                        <button key={t.id}
+                          className={`tpl-card${pick === t.id ? ' on' : ''}`}
+                          style={{ ['--tpl' as string]: t.accent }}
+                          onClick={() => setPick(t.id)}
+                          onDoubleClick={() => { setPick(t.id); setStep(2); }}
+                          onMouseEnter={() => setHover(t.id)} onMouseLeave={() => setHover(null)}
+                          onFocus={() => setHover(t.id)} onBlur={() => setHover(null)}>
+                          <span className="dot"><Icon name={t.icon} size={15} /></span>
+                          <b>{t.name[lang]}</b>
+                          <em>{t.tagline[lang]}</em>
+                          <span className="n">{t.counts.agnostic} components</span>
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
+                <div className="sect-label" style={{ marginTop: 6 }}>Architecture templates</div>
                 <div className="tpl-grid">
-                  {templates.map(t => (
+                  {templates.filter(t => t.kind !== 'project').map(t => (
                     <button key={t.id}
                       className={`tpl-card${pick === t.id ? ' on' : ''}`}
                       style={{ ['--tpl' as string]: t.accent }}
@@ -602,7 +628,7 @@ function NewProjectDialog({ folderId, busy, setBusy, onClose, onCreated }: {
                 placeholder={chosen ? chosen.tagline[lang] : 'What this system does, in one line'} />
             </label>
 
-            {chosen && (
+            {chosen && !isProjectTemplate && (
               <>
                 <div className="field"><span>Deployment target</span>
                   <div className="radio-row">

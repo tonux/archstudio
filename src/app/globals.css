@@ -280,6 +280,12 @@ input.input[type="color"] { height: 34px; padding: 3px; cursor: pointer; }
 .tree-row .ficon svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .tree-row .label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tree-row .count { font-family: var(--mono); font-size: 10px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.tree-row .stack { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.tree-row .stack-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tree-row .stack-sub {
+  font-size: 11.5px; color: var(--ink-3); overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; line-height: 1.35;
+}
 .tree-row .rowbtns { display: none; gap: 2px; }
 .tree-row:hover .rowbtns { display: flex; }
 .tree-row .rowbtns button {
@@ -295,12 +301,40 @@ input.input[type="color"] { height: 34px; padding: 3px; cursor: pointer; }
   padding: 24px 28px 18px; border-bottom: 1px solid var(--line);
   display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; background: var(--panel);
 }
+.ws-head.admin-head {
+  display: block;
+  padding: 12px 28px;
+}
+.ws-head.admin-head.admin-head-compact {
+  padding: 10px 28px;
+}
+.ws-head-row {
+  display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+}
+.ws-head-title {
+  flex: 1; min-width: 0; margin: 0;
+  font-size: 26px; line-height: 1.15; letter-spacing: -.02em;
+}
+/* Body lede under topbar chrome — not a second page title */
+.ws-head.admin-head .ws-head-lede {
+  flex: 1; min-width: 160px; margin: 0;
+  font-size: 13px; line-height: 1.4; color: var(--ink-2);
+}
+.ws-head-lede {
+  margin: 6px 0 0; font-size: 13px; color: var(--ink-2);
+}
 .ws-head h1 { font-size: 26px; }
 .ws-head p { margin: 5px 0 0; font-size: 13px; color: var(--ink-2); }
 .ws-body { padding: 22px 28px 60px; }
+.ws-head-tools {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin-left: auto;
+}
+.ws-head-tools .ws-search { margin-left: 0; }
 .ws-search { position: relative; margin-left: auto; }
 .ws-search input { width: 240px; padding-left: 32px; }
 .ws-search svg { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); width: 14px; height: 14px; stroke: var(--ink-3); fill: none; stroke-width: 2; }
+.ws-search.inline { margin-left: 0; flex: 1; min-width: 200px; }
 
 .pgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(268px, 1fr)); gap: 14px; }
 .pcard {
@@ -857,6 +891,40 @@ input.input[type="color"] { height: 34px; padding: 3px; cursor: pointer; }
 .iconpick svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
 
 .previewframe { flex: 1; border: 0; width: 100%; background: var(--bg); }
+
+.preview-shell {
+  flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden;
+}
+.preview-shell-head {
+  flex: none; display: flex; justify-content: flex-end; margin-bottom: 10px;
+}
+.preview-shell--compact .preview-shell-head { margin-bottom: 8px; }
+.preview-stage {
+  flex: 1; min-height: 0; overflow: auto; background: var(--bg);
+  border: 1px solid var(--line-2);
+}
+.preview-shell--compact .preview-stage { overflow: hidden; }
+.preview-scale { position: relative; flex: none; }
+.preview-shell--compact .preview-scale { margin: 0 auto; }
+.preview-shell .previewframe {
+  flex: none; display: block; pointer-events: none;
+  background: var(--paper, var(--bg));
+}
+.preview-shell--full .previewframe { pointer-events: auto; }
+
+.inspector-preview {
+  flex: none; height: 220px; margin-bottom: 12px; display: flex; flex-direction: column; min-height: 0;
+}
+.preview-tab-body,
+.diagram-tab-body {
+  flex: 1; min-height: 0; display: flex; flex-direction: column;
+}
+.diagram-tab-body .editor-body {
+  flex: 1; min-height: 0;
+}
+.preview-tab-body {
+  padding: 0 0 0;
+}
 
 /* ------------------------------------------------- reading an older version
    The frame below holds a complete, valid drawing with nothing on it saying how

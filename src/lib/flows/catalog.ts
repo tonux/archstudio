@@ -587,9 +587,12 @@ export const FLOW_CATALOG: FlowTemplate[] = [
  * whole structure, so hints — which are plain string arrays — pass through
  * untouched while every `{ en, fr }` pair collapses to its variant.
  */
-export function resolveCatalog(lang: Lang): FlowPattern[] {
+export function resolveCatalogFromCode(lang: Lang): FlowPattern[] {
   return FLOW_CATALOG.map(tpl => ({
     ...resolveDeep<Omit<FlowPattern, 'source'>>(tpl, lang),
     source: 'catalog' as const
   }));
 }
+
+/** @deprecated import resolve-catalog.server for runtime; tests use code catalog */
+export const resolveCatalog = resolveCatalogFromCode;

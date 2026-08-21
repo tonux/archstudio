@@ -35,6 +35,10 @@ export interface LegoBrick {
   defaultScope: string;
   capabilities: string[];
   role: string;
+  /** One- or two-sentence catalog purpose for ADD context and glossary. */
+  purpose: string;
+  /** CAF chapter gating tags — snapshotted onto components at placement. */
+  concernTags: import('../document/concerns').ConcernTag[];
   responsibilities: string[];
   notes: string[];
   affinities: string[];

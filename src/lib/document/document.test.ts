@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import { blankArchitecture, normalizeArchitecture } from '../defaults';
 import { instantiate, getTemplate } from '../templates';
 import { tabRows } from '../tabs';
-import type { Architecture, Section } from '../types';
+import type { Architecture, ArchitectureDecision, Flow, Section } from '../types';
 import { buildOutline, partOf, slotKey, supportLayerId, toc } from './plan';
 import { PRESET_SECTION_IDS, applyDesignDocumentPreset, missingPresetSections } from './preset';
 
@@ -18,6 +18,28 @@ const withSections = (sections: Section[]): Architecture => {
   doc.sections = sections;
   return doc;
 };
+
+const kindsOf = (entries: { body: { kind: string } }[]): string[] =>
+  entries.map(e => e.body.kind);
+
+const placedCanvas = (): Architecture => {
+  const doc = blankArchitecture('Test');
+  doc.groups = [{ id: 'core', name: 'Core' }];
+  doc.layers = [{ id: 'services', name: 'Services' }];
+  doc.components = [
+    { id: 'web', name: 'Web app', group: 'core', layer: 'services' },
+    { id: 'api', name: 'API', group: 'core', layer: 'services' }
+  ];
+  doc.technologies = [{ name: 'Postgres' }];
+  return doc;
+};
+
+const journey = (id: string, name: string): Flow => ({
+  id, name, steps: [{ component: 'web', title: 'Start' }]
+});
+
+const flowIdsOf = (entries: { body: { kind: string; flow?: Flow } }[]) =>
+  entries.filter(e => e.body.kind === 'flow').map(e => e.body.flow!.id);
 
 /* ------------------------------------------------------------------ slots */
 
@@ -109,9 +131,10 @@ test('flows and the stack table close the appendices', () => {
   const doc = instantiate(getTemplate('multi-service')!, {
     target: 'aws', lang: 'fr', projectName: 'Demo', today: '2026-08-14'
   });
-  const kinds = buildOutline(doc).parts.at(-1)!.entries.map(e => e.body.kind);
+  const kinds = kindsOf(buildOutline(doc).parts.at(-1)!.entries);
+  /* multi-service has two named flows: they move to the application part. */
+  assert.equal(kinds.filter(k => k === 'flow').length, 0);
   assert.equal(kinds.at(-1), 'stack');
-  assert.ok(kinds.includes('flow'));
 });
 
 test('the outline speaks the document’s language', () => {
@@ -138,6 +161,160 @@ test('the support layer follows the viewer’s rule', () => {
 
   four.ui.supportLayer = false;
   assert.equal(supportLayerId(four), null);
+});
+
+test('a canvas with groups or components gets a Context chapter in the introduction', () => {
+  const groupsOnly = blankArchitecture('Test');
+  groupsOnly.groups = [{ id: 'core', name: 'Core' }];
+  const fromGroups = buildOutline(groupsOnly);
+  const introG = fromGroups.parts.find(p => p.title === 'Introduction');
+  assert.ok(introG);
+  assert.ok(kindsOf(introG.entries).includes('context'));
+  assert.ok(introG.entries.some(e => /Context|Contexte/.test(e.title)));
+  assert.equal(JSON.stringify(fromGroups).includes('[…]'), false);
+
+  const withComponents = placedCanvas();
+  const introC = buildOutline(withComponents).parts.find(p => p.title === 'Introduction');
+  assert.ok(introC);
+  assert.ok(kindsOf(introC.entries).includes('context'));
+  assert.ok(introC.entries.some(e => /Context/.test(e.title)));
+
+  const fr = instantiate(getTemplate('serverless-mvp')!, {
+    target: 'gcp', lang: 'fr', projectName: 'Demo', today: '2026-08-14'
+  });
+  const introFr = buildOutline(fr).parts.find(p => p.title === 'Introduction')!;
+  assert.ok(introFr.entries.some(e => /Contexte/.test(e.title)));
+  assert.equal(JSON.stringify(introFr.entries.find(e => /Contexte/.test(e.title))).includes('[…]'), false);
+});
+
+test('an empty canvas omits Context, glossary, and ADR index', () => {
+  const doc = blankArchitecture('Test');
+  doc.meta.intro = 'An introduction.';
+  const outline = buildOutline(doc);
+  const kinds = outline.parts.flatMap(p => kindsOf(p.entries));
+  const titles = toc(outline).map(r => r.title);
+  assert.equal(kinds.includes('context'), false);
+  assert.equal(kinds.includes('glossary'), false);
+  assert.equal(kinds.includes('adr-index'), false);
+  assert.equal(titles.some(t => /Context|Contexte/.test(t)), false);
+});
+
+test('one to five named flows sit after the inventory, not in the appendices', () => {
+  for (const id of ['multi-service', 'serverless-mvp'] as const) {
+    const doc = instantiate(getTemplate(id)!, {
+      target: 'aws', lang: 'en', projectName: 'Demo', today: '2026-08-14'
+    });
+    const named = doc.flows.filter(f => f.name.trim());
+    assert.ok(named.length >= 1 && named.length <= 5);
+    const outline = buildOutline(doc);
+    const app = outline.parts.find(p => p.title.includes('Application'))!;
+    const appendix = outline.parts.at(-1)!;
+    const appKinds = kindsOf(app.entries);
+    assert.equal(appKinds[0], 'inventory');
+    const flowCount = appKinds.filter(k => k === 'flow').length;
+    assert.equal(flowCount, named.length);
+    assert.ok(appKinds.slice(1, 1 + flowCount).every(k => k === 'flow'));
+    assert.equal(kindsOf(appendix.entries).includes('flow'), false);
+  }
+});
+
+test('named flows fall back to appendices when no components are placed', () => {
+  const doc = blankArchitecture('Test');
+  doc.flows = [
+    journey('signup', 'Sign up'),
+    journey('checkout', 'Checkout')
+  ];
+  const outline = buildOutline(doc);
+  const appendix = outline.parts.at(-1)!;
+  const app = outline.parts.find(p => p.title.includes('Application'));
+  assert.equal(app, undefined);
+  assert.equal(kindsOf(appendix.entries).filter(k => k === 'flow').length, 2);
+  assert.ok(flowIdsOf(appendix.entries).includes('signup'));
+  assert.ok(flowIdsOf(appendix.entries).includes('checkout'));
+});
+
+test('six or more named flows stay in the appendices', () => {
+  const doc = placedCanvas();
+  doc.flows = Array.from({ length: 6 }, (_, i) => journey(`flow-${i + 1}`, `Journey ${i + 1}`));
+  const outline = buildOutline(doc);
+  const app = outline.parts.find(p => p.title.includes('Application'))!;
+  const appendix = outline.parts.at(-1)!;
+  assert.equal(kindsOf(app.entries).includes('flow'), false);
+  assert.equal(kindsOf(appendix.entries).filter(k => k === 'flow').length, 6);
+});
+
+test('unnamed flows stay in the appendices', () => {
+  const doc = placedCanvas();
+  doc.flows = [
+    journey('checkout', 'Checkout'),
+    journey('draft', ''),
+    journey('spaces', '   ')
+  ];
+  const outline = buildOutline(doc);
+  const app = outline.parts.find(p => p.title.includes('Application'))!;
+  const appendix = outline.parts.at(-1)!;
+  const inApp = flowIdsOf(app.entries);
+  const inAppendix = flowIdsOf(appendix.entries);
+  assert.ok(inApp.includes('checkout'));
+  assert.equal(inApp.includes('draft'), false);
+  assert.equal(inApp.includes('spaces'), false);
+  assert.ok(inAppendix.includes('draft'));
+  assert.ok(inAppendix.includes('spaces'));
+  assert.equal(inAppendix.includes('checkout'), false);
+});
+
+test('the glossary lists every placed component and sits before the stack', () => {
+  const doc = instantiate(getTemplate('serverless-mvp')!, {
+    target: 'gcp', lang: 'en', projectName: 'Demo', today: '2026-08-14'
+  });
+  const appendix = buildOutline(doc).parts.at(-1)!;
+  const kinds = kindsOf(appendix.entries);
+  const gi = kinds.indexOf('glossary');
+  const si = kinds.indexOf('stack');
+  assert.ok(gi >= 0);
+  assert.ok(si >= 0);
+  assert.ok(gi < si);
+  const glossary = appendix.entries[gi];
+  for (const c of doc.components) {
+    assert.ok(JSON.stringify(glossary).includes(c.name), c.name);
+  }
+  assert.equal(JSON.stringify(glossary).includes('[…]'), false);
+});
+
+test('the ADR index appears only when decisions exist and never contains a TODO', () => {
+  const empty = placedCanvas();
+  const emptyKinds = buildOutline(empty).parts.flatMap(p => kindsOf(p.entries));
+  assert.equal(emptyKinds.includes('adr-index'), false);
+
+  const decision: ArchitectureDecision = {
+    id: 'adr-1',
+    title: 'Pick a bus',
+    context: 'Services must not call each other directly.',
+    decision: 'Publish events.',
+    consequences: 'Consumers stay independent.',
+    status: 'accepted'
+  };
+  const withDecisions = { ...placedCanvas(), decisions: [decision] };
+  const outline = buildOutline(withDecisions);
+  const intro = outline.parts.find(p => p.title === 'Introduction');
+  assert.ok(intro);
+  const kinds = kindsOf(intro.entries);
+  const ci = kinds.indexOf('context');
+  const ai = kinds.indexOf('adr-index');
+  assert.ok(ai >= 0);
+  assert.ok(ci >= 0 && ci < ai);
+  const adr = intro.entries[ai];
+  assert.equal(JSON.stringify(adr).includes('TODO'), false);
+  assert.equal(JSON.stringify(adr).includes('[…]'), false);
+  assert.ok(JSON.stringify(adr).includes(decision.title));
+});
+
+test('a blank outline never includes the CAF preset chapters', () => {
+  const outline = buildOutline(blankArchitecture('Test'));
+  const sectionIds = outline.parts.flatMap(p => p.entries.flatMap(e =>
+    e.body.kind === 'section' ? [e.body.section.id] : []
+  ));
+  assert.ok(PRESET_SECTION_IDS.every(id => !sectionIds.includes(id)));
 });
 
 /* ----------------------------------------------------------------- preset */
@@ -190,7 +367,14 @@ test('the generated deployment table becomes the service-selection chapter', () 
   assert.equal(doc.sections.find(s => s.id === 'deployment')!.doc?.chapter, '2.1');
 
   const part = buildOutline(doc).parts.find(p => p.number === '2')!;
-  assert.deepEqual(part.entries.slice(0, 2).map(e => e.body.kind), ['inventory', 'section']);
+  const kinds = kindsOf(part.entries);
+  assert.equal(kinds[0], 'inventory');
+  const firstSection = kinds.indexOf('section');
+  assert.ok(firstSection >= 2);
+  assert.ok(kinds.slice(1, firstSection).every(k => k === 'flow'));
+  const chapter = part.entries[firstSection];
+  assert.equal(chapter.body.kind, 'section');
+  if (chapter.body.kind === 'section') assert.equal(chapter.body.section.id, 'deployment');
 });
 
 test('the preset is translated, and only in the document’s language', () => {

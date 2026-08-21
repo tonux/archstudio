@@ -25,8 +25,10 @@
 import { naturalTabs } from '../tabs';
 import type { Architecture, DocSlot, Section } from '../types';
 import { resolveDeep, type Lang, type TemplateSection } from '../templates/types';
+import { aggregateConcerns, deriveGates } from './concerns';
+import { hydratePresetSection } from './hydrate';
 
-type PresetSection = TemplateSection & { doc: DocSlot };
+export type PresetSection = TemplateSection & { doc: DocSlot };
 
 /** Marks a value the author still has to supply. */
 const TODO = '[…]';
@@ -534,15 +536,36 @@ export interface PresetResult {
   added: string[];
   /** Ids that were already there — left untouched, edits and all. */
   kept: string[];
+  /** Auto-gated sections re-hydrated from the current component set. */
+  updated?: string[];
+  /** Auto-gated section ids removed because no component opens the gate anymore. */
+  removed?: string[];
 }
 
 /** Ids the preset owns, in plan order. */
 export const PRESET_SECTION_IDS = SECTIONS.map(s => s.id);
 
+/** Bilingual preset chapter specs for admin seed (M3). */
+export function allPresetSectionSpecs(): readonly PresetSection[] {
+  return SECTIONS;
+}
+
 /** How many preset chapters `doc` is still missing. */
 export function missingPresetSections(doc: Architecture): number {
   const have = new Set(doc.sections.map(s => s.id));
   return PRESET_SECTION_IDS.filter(id => !have.has(id)).length;
+}
+
+/** Chapters the placed bricks open that are not yet persisted (or still template `[…]`). */
+export function missingGatedPresetSections(doc: Architecture): number {
+  const gates = deriveGates(aggregateConcerns(doc));
+  let n = 0;
+  for (const id of gates) {
+    const existing = doc.sections.find(s => s.id === id);
+    if (!existing) { n++; continue; }
+    if (!existing.doc?.gated && JSON.stringify(existing).includes(TODO)) n++;
+  }
+  return n;
 }
 
 /**
@@ -553,6 +576,89 @@ export function missingPresetSections(doc: Architecture): number {
  * that never pinned its tabs would grow the tab bar by thirteen. Writing the
  * current tabs down explicitly keeps the viewer exactly as it was.
  */
+
+/** Read-only projection of one preset chapter — does not mutate `doc`. */
+export function presetSectionForId(id: string, lang?: Lang): Section | undefined {
+  const spec = SECTIONS.find(section => section.id === id);
+  if (!spec) return undefined;
+  const l: Lang = lang ?? 'en';
+  return resolveDeep<Section>(spec, l);
+}
+
+/**
+ * Add, refresh, or remove preset chapters driven by placed components' concern tags.
+ * Gated sections are hydrated from catalog metadata on every sync — adding Cognito
+ * updates the IAM chapter; removing it drops Cognito from the text.
+ * Manual preset chapters (no `gated` flag) are never touched.
+ */
+export function syncGatedPresetSections(
+  doc: Architecture,
+  lang?: Lang,
+  opts?: { refresh?: boolean }
+): PresetResult {
+  const l: Lang = lang ?? (doc.meta?.lang === 'fr' ? 'fr' : 'en');
+  const refresh = opts?.refresh !== false;
+  const gates = deriveGates(aggregateConcerns(doc));
+  const removed: string[] = [];
+
+  doc.sections = doc.sections.filter(section => {
+    if (!section.doc?.gated) return true;
+    if (gates.has(section.id)) return true;
+    removed.push(section.id);
+    return false;
+  });
+
+  const added: string[] = [];
+  const kept: string[] = [];
+  const updated: string[] = [];
+
+  PRESET_SECTION_IDS.forEach(id => {
+    if (!gates.has(id)) return;
+    const existingIdx = doc.sections.findIndex(s => s.id === id);
+
+    if (existingIdx >= 0) {
+      const existing = doc.sections[existingIdx];
+      const templateLike = JSON.stringify(existing).includes(TODO);
+      if (!existing.doc?.gated) {
+        if (!templateLike) {
+          kept.push(id);
+          return;
+        }
+        /* Manual CAF pack still full of placeholders — adopt as gated and fill. */
+      } else if (!refresh && !templateLike) {
+        kept.push(id);
+        return;
+      }
+      const raw = presetSectionForId(id, l);
+      if (!raw) return;
+      const hydrated = hydratePresetSection(raw, doc, l);
+      doc.sections[existingIdx] = {
+        ...hydrated,
+        id,
+        doc: { chapter: hydrated.doc?.chapter, gated: true }
+      };
+      updated.push(id);
+      return;
+    }
+
+    const raw = presetSectionForId(id, l);
+    if (!raw) return;
+    const hydrated = hydratePresetSection(raw, doc, l);
+    doc.sections.push({
+      ...hydrated,
+      doc: { chapter: hydrated.doc?.chapter, gated: true }
+    });
+    added.push(id);
+  });
+
+  return {
+    added,
+    kept,
+    updated: updated.length ? updated : undefined,
+    removed: removed.length ? removed : undefined
+  };
+}
+
 export function applyDesignDocumentPreset(doc: Architecture, lang?: Lang): PresetResult {
   const l: Lang = lang ?? (doc.meta?.lang === 'fr' ? 'fr' : 'en');
 
