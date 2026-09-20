@@ -1022,6 +1022,29 @@ On a fresh install with local accounts, the first email and password posted to t
 **creates** the account that owns the install. There is no other way in, and the window closes
 the moment it is used.
 
+#### An account from the environment
+
+Set `AUTH_USERNAME` and `AUTH_PASSWORD` and the install comes up on local accounts already
+knowing its operator — no dialog, and **no bootstrap window** for the first visitor to walk
+through. This is the one to use for a container:
+
+```bash
+AUTH_USERNAME=admin AUTH_PASSWORD='a long one, please' docker compose up --build
+```
+
+- The username need not be an email. `admin` is fine; nothing here parses it.
+- The password is **compared against the environment on every sign-in and never stored**.
+  Rotating it is editing `.env` and restarting — there is no hash to go stale. Sessions
+  already issued stay valid until they expire; sign them out from **People** if that matters.
+- A `principals` row is created the first time it signs in, so history can name an author.
+  It appears in **People** from then on, and its password is not editable there.
+- Setting both **pins the mode**, exactly as `AUTH_MODE` does, so authentication cannot be
+  switched off from a browser. `AUTH_MODE` still overrides if you set it explicitly.
+- `AUTH_NAME` sets the display name, defaulting to the username.
+- The value is taken **exactly as written**, spaces included. Quote it if it has any.
+- Until a role is granted to anyone, every signed-in person is an admin — the bootstrap valve
+  below. Grant this account `admin` in **People** to close it.
+
 ### Roles, and proposals
 
 Four roles, in **People**: **viewer** reads and exports, **contributor** proposes,
@@ -1068,6 +1091,9 @@ whose local Node is older than the `node:sqlite` floor above.
 
 ```bash
 docker compose up --build            # http://localhost:3000
+
+# On another port — one variable moves both the container and the published port:
+PORT=8080 docker compose up --build  # http://localhost:8080
 ```
 
 `./data` on the host is bind-mounted to `/app/data` in the container, so `data/studio.db`

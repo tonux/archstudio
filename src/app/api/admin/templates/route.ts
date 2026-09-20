@@ -4,15 +4,22 @@ import {
   listAllAdminTemplates,
   type ProjectTemplateCreate,
 } from '@/lib/admin/project-templates';
+import { authorize, requireApi } from '@/lib/auth/guard';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function GET() {
+  const denied = await requireApi();
+  if (denied) return denied;
+
   return NextResponse.json({ templates: listAllAdminTemplates() });
 }
 
 export async function POST(req: Request) {
+  const denied = await authorize('manage-referential', { kind: 'referential' });
+  if (denied) return denied;
+
   const body = (await req.json().catch(() => ({}))) as Partial<ProjectTemplateCreate>;
   const nameEn = String(body.nameEn || '').trim();
   const id = String(body.id || nameEn).trim();

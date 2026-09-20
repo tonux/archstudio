@@ -5,11 +5,15 @@ import {
   upsertSystemCopy,
   type SystemCopyPair,
 } from "@/lib/admin/system-copy";
+import { authorize, requireApi } from '@/lib/auth/guard';
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(_req: Request, ctx: { params: Promise<{ key: string }> }) {
+  const denied = await requireApi();
+  if (denied) return denied;
+
   const { key } = await ctx.params;
   const item = getSystemCopy(decodeURIComponent(key));
   if (!item) return NextResponse.json({ error: "not found" }, { status: 404 });
@@ -17,6 +21,9 @@ export async function GET(_req: Request, ctx: { params: Promise<{ key: string }>
 }
 
 export async function PATCH(req: Request, ctx: { params: Promise<{ key: string }> }) {
+  const denied = await authorize('manage-referential', { kind: 'referential' });
+  if (denied) return denied;
+
   const { key } = await ctx.params;
   const decoded = decodeURIComponent(key);
   const body = (await req.json().catch(() => ({}))) as Partial<SystemCopyPair>;
@@ -37,6 +44,9 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ key: string }
 }
 
 export async function DELETE(_req: Request, ctx: { params: Promise<{ key: string }> }) {
+  const denied = await authorize('manage-referential', { kind: 'referential' });
+  if (denied) return denied;
+
   const { key } = await ctx.params;
   try {
     deleteSystemCopy(decodeURIComponent(key));

@@ -6,11 +6,15 @@ import {
   getProjectTemplateAdmin,
 } from '@/lib/admin/project-templates';
 import type { Architecture } from '@/lib/types';
+import { authorize } from '@/lib/auth/guard';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const denied = await authorize('manage-referential', { kind: 'referential' });
+  if (denied) return denied;
+
   const { id } = await ctx.params;
   const body = await req.json().catch(() => ({}));
   let doc: Architecture | null = null;

@@ -1,10 +1,11 @@
 import { NextResponse } from 'next/server';
 
 import { authConfig } from '@/lib/auth/config';
+import { envAccountConfigured, matchesEnvAccount } from '@/lib/auth/env-account';
 import { clearSessionCookie, SESSION_COOKIE, setSessionCookie } from '@/lib/auth/session';
 import {
   audit, authenticate, countCredentials, createSession, destroySession,
-  pruneSessions, setPassword, upsertPrincipal
+  principalById, pruneSessions, setPassword, upsertPrincipal
 } from '@/lib/auth/store';
 import { passwordProblem } from '@/lib/auth/types';
 import { publicAuth, requireApi } from '@/lib/auth/guard';
@@ -40,11 +41,32 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Email and password are both required.' }, { status: 400 });
   }
 
+  /* The environment account, checked before anything touches the database.
+   *
+   * First rather than last because it is the account that cannot be deleted,
+   * locked out, or lost with the volume — if the operator's own credentials
+   * did not work until the stored ones had been consulted, a corrupt row would
+   * be able to shut them out of fixing it. */
+  const fromEnv = matchesEnvAccount(email, password);
+  if (fromEnv) {
+    /* A principals row, created on first sign-in: sessions reference one, and
+     * `revision_authors` has to be able to name who froze a version. The
+     * password is not stored — it stays in the environment, which is what
+     * makes rotating it a restart rather than a migration. */
+    const principal = upsertPrincipal(fromEnv.username, fromEnv.name);
+    return sign(principal.id);
+  }
+
   /* The bootstrap. A fresh install has nobody, so the first credentials posted
    * create the account that owns it — there is no other way in, and an
    * out-of-band CLI step would be a worse one. The window closes the moment it
-   * is used: `countCredentials()` is non-zero from then on, for everyone. */
-  const bootstrapping = countCredentials() === 0;
+   * is used: `countCredentials()` is non-zero from then on, for everyone.
+   *
+   * Credentials in the environment close it too, and this is the whole reason
+   * they are worth having. Without this clause an install that names an
+   * operator would still hand ownership to whoever posted first — the door
+   * would be locked and the window next to it open. */
+  const bootstrapping = countCredentials() === 0 && !envAccountConfigured();
   if (bootstrapping) {
     const problem = passwordProblem(password);
     if (problem) return NextResponse.json({ error: problem }, { status: 400 });
@@ -69,7 +91,14 @@ async function sign(principalId: string) {
   pruneSessions();
   const token = createSession(principalId);
   audit('sign-in', principalId);
-  return setSessionCookie(NextResponse.json(await publicAuth()), token);
+  /* The principal is handed in rather than looked up from the request: the
+   * cookie is being set on this response and cannot be read back off the one
+   * that arrived without it. */
+  const principal = principalById(principalId);
+  return setSessionCookie(
+    NextResponse.json(await publicAuth(principal ?? undefined)),
+    token
+  );
 }
 
 export async function DELETE() {

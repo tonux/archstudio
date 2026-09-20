@@ -2,11 +2,23 @@ services:
   archstudio:
     build: .
     ports:
-      - "3000:3000"
+      # One knob: set PORT in .env (or the shell) and both sides follow.
+      - "${PORT:-3000}:${PORT:-3000}"
     volumes:
       - ./data:/app/data
     environment:
       - DATABASE_PATH=/app/data/studio.db
+      # next start reads PORT itself, so the container listens where you say.
+      - PORT=${PORT:-3000}
+      # Set both and this install comes up asking for them — no dialog, and no
+      # window in which the first visitor claims the account. Leave them unset
+      # and there is no login at all: put it behind a VPN.
+      - AUTH_USERNAME=${AUTH_USERNAME:-}
+      - AUTH_PASSWORD=${AUTH_PASSWORD:-}
+      - AUTH_NAME=${AUTH_NAME:-}
+      # Mark the session cookie `secure` once this is served over HTTPS. On
+      # plain HTTP the browser drops it and signing in appears to do nothing.
+      - SECURE_COOKIES=${SECURE_COOKIES:-}
       # Optional — copy .env.example to .env and fill in the ones you use.
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}

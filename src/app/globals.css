@@ -230,6 +230,77 @@ input.input[type="color"] { height: 34px; padding: 3px; cursor: pointer; }
 .hint { font-size: 11.5px; color: var(--ink-3); margin-top: 4px; }
 .empty { padding: 44px 20px; text-align: center; color: var(--ink-3); font-size: 13.5px; }
 
+/* ----------------------------------------------------------------- login */
+/* The one page someone sees before the app exists around them, so it carries
+ * the frame itself: the calque ground, one sheet of paper on it, square like
+ * every other surface here. Centred with grid rather than flex so the card
+ * stays put when the error line appears and the form grows by a row. */
+.login {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: var(--bg);
+}
+
+.login-card {
+  width: 100%;
+  max-width: 368px;
+  background: var(--panel);
+  border: 1px solid var(--line-3);
+  padding: 30px 28px 26px;
+}
+
+.login-brand {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-bottom: 22px;
+  color: var(--ink);
+}
+.login-brand strong { font-size: 15px; letter-spacing: -.01em; }
+
+.login-card h1 {
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: -.01em;
+  margin: 0 0 6px;
+  color: var(--ink);
+}
+/* Sits under the heading as one paragraph of context, not as a field hint —
+ * the extra room below it separates "what this page is" from "what to type". */
+.login-lede {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--ink-2);
+  margin: 0 0 20px;
+}
+.login-card h1 + form { margin-top: 20px; }
+
+.login-error {
+  display: flex;
+  gap: 8px;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--danger);
+  border-left: 2px solid var(--danger);
+  background: color-mix(in srgb, var(--danger) 7%, transparent);
+  padding: 8px 10px;
+  margin: 14px 0 0;
+}
+
+.login-submit {
+  width: 100%;
+  justify-content: center;
+  margin-top: 18px;
+  padding: 9px 12px;
+}
+
+@media (max-width: 420px) {
+  .login { padding: 16px; align-content: start; padding-top: 48px; }
+  .login-card { padding: 24px 20px 22px; }
+}
+
 /* ------------------------------------------------------------- app shell */
 .shell { display: flex; height: 100vh; overflow: hidden; }
 

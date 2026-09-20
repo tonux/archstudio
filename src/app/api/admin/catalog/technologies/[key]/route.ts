@@ -4,6 +4,7 @@ import {
   updateTechnologyDescription,
   type TechnologyDescriptionUpdate,
 } from '@/lib/lego/admin-catalog';
+import { authorize } from '@/lib/auth/guard';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -11,6 +12,9 @@ export const dynamic = 'force-dynamic';
 type Ctx = { params: Promise<{ key: string }> };
 
 export async function PATCH(req: Request, { params }: Ctx) {
+  const denied = await authorize('manage-referential', { kind: 'referential' });
+  if (denied) return denied;
+
   const { key } = await params;
   const body = await req.json().catch(() => null);
   if (!body || typeof body !== 'object') {
@@ -27,6 +31,9 @@ export async function PATCH(req: Request, { params }: Ctx) {
 }
 
 export async function DELETE(_req: Request, { params }: Ctx) {
+  const denied = await authorize('manage-referential', { kind: 'referential' });
+  if (denied) return denied;
+
   const { key } = await params;
   try {
     const technologyKey = deleteTechnologyDescription(decodeURIComponent(key));

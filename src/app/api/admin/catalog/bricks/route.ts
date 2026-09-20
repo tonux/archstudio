@@ -1,10 +1,14 @@
 import { NextResponse } from 'next/server';
 import { createAdminBrick, type BrickAdminCreate } from '@/lib/lego/admin-catalog';
+import { authorize } from '@/lib/auth/guard';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: Request) {
+  const denied = await authorize('manage-referential', { kind: 'referential' });
+  if (denied) return denied;
+
   const body = await req.json().catch(() => null);
   if (!body || typeof body !== 'object') {
     return NextResponse.json({ error: 'invalid body' }, { status: 400 });
