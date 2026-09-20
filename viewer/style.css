@@ -219,6 +219,39 @@ main{max-width:1440px;margin:0 auto;padding:28px 24px 90px}
   background-size:24px 24px;opacity:.05;
 }
 #edges{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:1;overflow:visible}
+/* ---------- The call chain, travelling
+   Picking a card lights the whole chain it sits in, and `.flow` is the second
+   copy of each curve — a dash of no length under a round cap, which is how a
+   stroke is made to carry a train of discs. Three things about it are
+   deliberate:
+
+   It is invisible by default and only ever lit through `.edge.tr`, which
+   engine.js sets on the edges the chain actually walks — so a sheet nobody has
+   touched does not move, and neither does a printed one.
+
+   Everything that animates sits inside `no-preference`. Asking for less motion
+   leaves the static reading intact and complete: the chain is still lit, still
+   dimmed around, still weighted by hop. The motion is the flourish, never the
+   information — losing it costs nothing that cannot be read from the page.
+
+   `--hop` staggers the start by depth, so the propagation reads outward from
+   the card that was picked rather than switching on all at once, and `--fd` is
+   the period the document asked for through ui.flowSpeedMs. Both are set by the
+   renderer; the fallbacks keep a hand-written SVG honest. Colour is the edge's
+   own — rule 1 — so a chain says scope while it moves. */
+.edge .flow{opacity:0}
+@media (prefers-reduced-motion:no-preference){
+  .edge.tr .flow{
+    opacity:.95;
+    animation:flowrun var(--fd,1.2s) linear infinite;
+    animation-delay:calc(var(--hop,1) * .17s);
+  }
+}
+/* Backwards along the offset is forwards along the curve: the path is authored
+   caller → callee, so one gap of negative offset carries each disc exactly to
+   where the next one started — a seamless loop, running in the direction of the
+   call, on both sides of the selection. */
+@keyframes flowrun{from{stroke-dashoffset:0}to{stroke-dashoffset:var(--fl,-14)}}
 /* The protocol on the line. An opaque plate rather than a halo: the curve runs
    underneath, and a stroked outline on 9 px type turns to mud. Monospace and
    muted ink — rule 3, this is something the machine knows, not prose. */
@@ -417,6 +450,11 @@ main{max-width:1440px;margin:0 auto;padding:28px 24px 90px}
 .db h4{font-family:var(--mono);font-size:10px;letter-spacing:.13em;text-transform:uppercase;color:var(--ink-3);margin:22px 0 9px;font-weight:400}
 .db h4:first-child{margin-top:0}
 .db p{margin:0 0 8px;font-size:13.5px;color:var(--ink-2)}
+/* Rule 3: the depth of the chain is something the machine counted, not prose,
+   so it is set in mono — and the two numbers are the sentence, so they take the
+   ink while the words around them stay quiet. */
+.db .chain{font-family:var(--mono);font-size:11.5px;color:var(--ink-3)}
+.db .chain b{color:var(--ink);font-weight:700;font-variant-numeric:tabular-nums}
 .db ul{margin:0;padding-left:17px;font-size:13.5px;color:var(--ink-2)}
 .db li{margin-bottom:5px}
 .taglist{display:flex;flex-wrap:wrap;gap:6px}
@@ -567,6 +605,8 @@ table.cmp td:first-child{font-weight:600;color:var(--ink)}
 }
 @media print{
   header,nav.tabs,.filters,.playbar,.scrim,.drawer{display:none!important}
+  /* A frozen frame of a moving dash is a dashed line that means nothing. */
+  .edge .flow{display:none!important}
   .view{display:block!important}
   /* Rule 5: paper drops the shadow token rather than the rules that use it. */
   :root{--shadow:none}
