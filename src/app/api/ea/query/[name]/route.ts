@@ -14,7 +14,7 @@ type Ctx = { params: Promise<{ name: string }> };
 
 /* One question, answered.
  *
- * `?subject=<entity id>` for the three that need one. `GET /api/ea/query/index`
+ * `?subject=<entity id>` for the four that need one. `GET /api/ea/query/index`
  * lists what can be asked, so the screen does not have to hard-code it. */
 export async function GET(req: Request, { params }: Ctx) {
   const denied = await requireApi();

@@ -35,6 +35,7 @@ import { stateAt, plateauIndex } from '../plateau';
 import { MOTIVATION_LABELS } from '../motivation';
 import {
   DEPENDENCY_RELATIONSHIP,
+  ENTITY_ELEMENT,
   MOTIVATION_ELEMENT,
   MOTIVATION_RELATIONSHIP,
   PLATEAU_RELATIONSHIP,
@@ -290,30 +291,74 @@ export function buildArchimateXml(doc: Architecture, opts: ArchimateOptions): st
     }
   }
 
-  /* Capabilities the document cites, from its own imprint — the same frozen
-   * copy the viewer renders from, so the exported model names exactly what the
-   * exported HTML names. */
-  const capabilityId = new Map<string, string>();
+  /* Everything the document cites, from its own imprint — the same frozen copy
+   * the viewer renders from, so the exported model names exactly what the
+   * exported HTML names.
+   *
+   * Every kind, not just capabilities. The imprint only ever holds what the
+   * document actually cites, so this exports a business process when one is
+   * cited and stays byte-identical when none is — the same shape the rest of
+   * the format holds to. The id keyspace is unchanged for capabilities, which
+   * is what stops this re-export duplicating what the last one produced. */
+  const entityId = new Map<string, string>();
   for (const entry of doc.imprint?.entities || []) {
-    if (entry.kind !== 'capability') continue;
-    const id = archimateId('zone', projectId, 'capability', entry.id);
-    capabilityId.set(entry.id, id);
+    const id = archimateId('zone', projectId, entry.kind, entry.id);
+    entityId.set(entry.id, id);
     elements.push({
-      id, type: 'Capability', name: entry.name,
+      id, type: ENTITY_ELEMENT[entry.kind] ?? 'Grouping', name: entry.name,
       documentation: entry.code || undefined,
       props: []
+    });
+  }
+  /* A cited entity sits inside its parent, when the document carries both.
+   * Composition points whole → part, so "Sales › Billing" exports as the tree
+   * it reads as rather than as two loose boxes. */
+  for (const entry of doc.imprint?.entities || []) {
+    const child = entityId.get(entry.id);
+    const parent = entry.parent ? entityId.get(entry.parent) : undefined;
+    if (!child || !parent) continue;
+    relationships.push({
+      id: archimateId('composition', projectId, 'nests', entry.parent!, entry.id),
+      type: ZONE_RELATIONSHIP,
+      source: parent,
+      target: child
     });
   }
   /* A component carrying a capability realises it. */
   for (const c of doc.components) {
     for (const cap of c.ea?.capabilities || []) {
-      const target = capabilityId.get(cap);
+      const target = entityId.get(cap);
       if (!target) continue;
       relationships.push({
         id: archimateId('composition', projectId, 'carries', c.id, cap),
         type: MOTIVATION_RELATIONSHIP,
         source: componentId.get(c.id)!,
         target
+      });
+    }
+  }
+  /* The component *is* an application, and somebody owns it. Assignment is the
+   * relationship ArchiMate uses for "this actor is responsible for that", which
+   * is exactly what `ea.owner` asserts. */
+  for (const c of doc.components) {
+    const source = componentId.get(c.id);
+    if (!source) continue;
+    const owner = c.ea?.owner ? entityId.get(c.ea.owner) : undefined;
+    if (owner) {
+      relationships.push({
+        id: archimateId('composition', projectId, 'owns', c.ea!.owner!, c.id),
+        type: 'Assignment',
+        source: owner,
+        target: source
+      });
+    }
+    for (const obj of c.ea?.objects || []) {
+      const target = entityId.get(obj);
+      if (!target) continue;
+      relationships.push({
+        id: archimateId('composition', projectId, 'accesses', c.id, obj),
+        type: 'Access',
+        source, target
       });
     }
   }
@@ -333,9 +378,22 @@ export function buildArchimateXml(doc: Architecture, opts: ArchimateOptions): st
       props: []
     });
 
+    /* The shared driver or goal this item restates, when it names one.
+     * Influence rather than Realization: a local statement of an enterprise
+     * objective does not *make it happen*, it is shaped by it. */
+    const shared = item.entity ? entityId.get(item.entity) : undefined;
+    if (shared) {
+      relationships.push({
+        id: archimateId('composition', projectId, 'restates', item.id, item.entity!),
+        type: 'Influence',
+        source: shared,
+        target: id
+      });
+    }
+
     /* Realization runs concrete → abstract: the component realises the goal. */
     for (const ref of item.realizedBy || []) {
-      const target = componentId.get(ref) ?? capabilityId.get(ref);
+      const target = componentId.get(ref) ?? entityId.get(ref);
       if (!target) continue;
       relationships.push({
         id: archimateId('composition', projectId, 'realizes', item.id, ref),

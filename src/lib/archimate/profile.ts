@@ -20,6 +20,7 @@
  */
 import type { Component } from '../types';
 import type { ZoneKind } from '../zones';
+import type { EntityKind, RelationKind } from '../ea/types';
 
 /** The element types this profile can emit.
  *
@@ -128,7 +129,13 @@ export type ArchimateRelationshipType =
   | 'Composition'
   | 'Aggregation'
   | 'Realization'
-  | 'Association';
+  | 'Association'
+  /* The four the referential's own relationships need. All standard ArchiMate 3
+   * names, so an importer that understands the five above understands these. */
+  | 'Assignment'
+  | 'Access'
+  | 'Triggering'
+  | 'Influence';
 
 /** Element types the exporter *synthesises*, and that an author never picks.
  *
@@ -152,6 +159,47 @@ export type ArchimateSyntheticType =
 export const MOTIVATION_ELEMENT: Record<string, ArchimateSyntheticType> = {
   driver: 'Driver', goal: 'Goal', principle: 'Principle',
   requirement: 'Requirement', constraint: 'Constraint', assessment: 'Assessment'
+};
+
+/** `EntityKind` → what ArchiMate calls it.
+ *
+ *  Eleven of the twelve are transcription rather than decision: the referential's
+ *  vocabulary was chosen from ArchiMate's in the first place, so a capability is
+ *  a Capability and an actor is a BusinessActor.
+ *
+ *  `domain` is the one judgement call. A slice of the organisation is not an
+ *  ArchiMate element — it is how an organisation is cut up, which the standard
+ *  leaves to Grouping on purpose. Mapping it to BusinessActor would have been
+ *  the tempting mistake: a domain is not somebody, and an importer that read it
+ *  as one would start assigning work to a budget line. */
+export const ENTITY_ELEMENT: Record<EntityKind, ArchimateElementType | ArchimateSyntheticType> = {
+  capability: 'Capability',
+  'business-process': 'BusinessProcess',
+  'business-service': 'BusinessService',
+  'business-object': 'BusinessObject',
+  actor: 'BusinessActor',
+  domain: 'Grouping',
+  application: 'ApplicationComponent',
+  'technology-standard': 'SystemSoftware',
+  driver: 'Driver',
+  goal: 'Goal',
+  principle: 'Principle',
+  requirement: 'Requirement'
+};
+
+/** What each referential relationship becomes.
+ *
+ *  Only the ones a document can carry are listed; the referential's own graph
+ *  lives server-side and never reaches an export, which reads the imprint. */
+export const RELATION_RELATIONSHIP: Record<RelationKind, ArchimateRelationshipType> = {
+  realizes: 'Realization',
+  serves: 'Serving',
+  'assigned-to': 'Assignment',
+  accesses: 'Access',
+  'composed-of': 'Composition',
+  'uses-standard': 'Association',
+  triggers: 'Triggering',
+  'motivated-by': 'Influence'
 };
 
 /** A dependency becomes `Serving`, **and the direction inverts.**

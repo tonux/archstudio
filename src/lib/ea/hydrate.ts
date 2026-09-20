@@ -13,7 +13,7 @@
  */
 import { db } from '../db';
 import type { Architecture } from '../types';
-import { citations, citedIds, normalizeImprint } from './imprint';
+import { citations, citedIds, motivationCitations, normalizeImprint } from './imprint';
 import { entitiesByIds } from './repository';
 import type { Imprint, ImprintEntity } from './types';
 
@@ -86,15 +86,23 @@ export function reindexProject(projectId: string, doc: Architecture): void {
    * The foreign key on `entity_id` is doing real work here too — an id that
    * survived normalisation because the imprint knew it, but that the
    * referential does not have, is refused rather than indexed. */
+  const rows: { id: string; owner: string; role: string }[] = [];
   for (const c of doc.components || []) {
-    for (const { id, role } of citations(c)) {
-      try {
-        insert.run(projectId, id, c.id, role);
-      } catch {
-        /* A citation to an entity that is not in the referential. The document
-         * keeps it — the imprint can render it offline — but it is not a fact
-         * the index may assert. */
-      }
+    for (const { id, role } of citations(c)) rows.push({ id, owner: c.id, role });
+  }
+  /* The document's own reasoning, keyed by the motivation item rather than by a
+   * component. Same table, same roles column — which is the point: "which
+   * projects serve this objective" is then the same query as "which projects use
+   * this application", and neither needed a second index to answer. */
+  for (const { id, owner, role } of motivationCitations(doc)) rows.push({ id, owner, role });
+
+  for (const { id, owner, role } of rows) {
+    try {
+      insert.run(projectId, id, owner, role);
+    } catch {
+      /* A citation to an entity that is not in the referential. The document
+       * keeps it — the imprint can render it offline — but it is not a fact
+       * the index may assert. */
     }
   }
 

@@ -1,8 +1,11 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Icon } from '../Icon';
+import { api } from '@/lib/api';
 import { slugify } from '@/lib/defaults';
+import { rememberInImprint } from '@/lib/ea/imprint';
+import { isMotivationEntityKind, type EntitySummary } from '@/lib/ea/types';
 import {
   MOTIVATION_BLURBS, MOTIVATION_KINDS, MOTIVATION_LABELS, byKind
 } from '@/lib/motivation';
@@ -18,6 +21,14 @@ import type { Architecture, MotivationItem, MotivationKind } from '@/lib/types';
  * So the picker is a plain multi-select of the document's own components and
  * whatever it cites from the referential — no search, no dialog, because a
  * field you have to open before you can fill it is a field people stop filling.
+ *
+ * The second field is newer and answers the opposite question. Some reasoning is
+ * not this document's: a regulation, a board-approved principle, an objective
+ * three programmes are funded against. Pointing an item at the shared one leaves
+ * the local wording alone and makes "which projects serve this objective" a
+ * query rather than a reading exercise. Four of the six kinds have a shared
+ * counterpart; `constraint` and `assessment` do not, because both are judgements
+ * about one piece of work at one moment.
  */
 
 type Patch = (fn: (d: Architecture) => Architecture) => void;
@@ -25,6 +36,18 @@ type Patch = (fn: (d: Architecture) => Architecture) => void;
 export default function MotivationEditor({ doc, patch }: { doc: Architecture; patch: Patch }) {
   const [kind, setKind] = useState<MotivationKind>('goal');
   const [name, setName] = useState('');
+  const [shared, setShared] = useState<EntitySummary[] | null>(null);
+
+  /* Fetched once, and only the four kinds that can be shared. Same reasoning as
+     the inspector's referential section: most editing sessions never open this
+     panel, so nobody who does not use it should pay for it. */
+  useEffect(() => {
+    let alive = true;
+    api.json<{ entities: EntitySummary[] }>('/api/ea/entities')
+      .then(r => { if (alive) setShared(r.entities.filter(e => isMotivationEntityKind(e.kind))); })
+      .catch(() => { if (alive) setShared([]); });
+    return () => { alive = false; };
+  }, []);
 
   const items = doc.motivation?.items ?? [];
 
@@ -103,6 +126,41 @@ export default function MotivationEditor({ doc, patch }: { doc: Architecture; pa
                 placeholder="What it means, or what it forbids."
                 onChange={e => update(list => list.map(x =>
                   x.id === item.id ? { ...x, text: e.target.value || undefined } : x))} />
+
+              {isMotivationEntityKind(item.kind) && (
+                <label className="field" style={{ marginTop: 6 }}>
+                  <span>States the shared</span>
+                  <select className="select" value={item.entity ?? ''}
+                    onChange={e => {
+                      const picked = (shared ?? []).find(x => x.id === e.target.value);
+                      update(list => list.map(x => x.id === item.id
+                        ? { ...x, entity: e.target.value || undefined } : x));
+                      /* Optimistic, exactly as the inspector does it: without the
+                         imprint entry the normaliser would drop the citation on
+                         the way back, because nothing would back it up. */
+                      if (picked) {
+                        patch(d => {
+                          rememberInImprint(d, {
+                            id: picked.id, kind: picked.kind, name: picked.name,
+                            ...(picked.code ? { code: picked.code } : {}),
+                            ...(picked.parent ? { parent: picked.parent } : {})
+                          });
+                          return d;
+                        });
+                      }
+                    }}>
+                    <option value="">this document&rsquo;s own</option>
+                    {(shared ?? []).filter(e => e.kind === item.kind).map(e => (
+                      <option key={e.id} value={e.id}>{e.name}</option>
+                    ))}
+                  </select>
+                  <div className="hint">
+                    {item.entity
+                      ? 'Counted against the shared one, across every project citing it.'
+                      : 'Local to this document. Point it at a shared one to make it countable.'}
+                  </div>
+                </label>
+              )}
 
               <div className="field" style={{ marginTop: 6 }}>
                 <span>Realised by ({(item.realizedBy ?? []).length})</span>

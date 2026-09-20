@@ -1,4 +1,4 @@
-/* The five questions.
+/* The six questions.
  *
  * These are the ones a company buys an enterprise architecture tool for, and
  * until the referential existed none of them had an answer that did not begin
@@ -9,6 +9,11 @@
  *   3. Where is a capability carried by nobody, or by seven things at once?
  *   4. Who is still on a technology we decided to leave?
  *   5. What has nobody filled in?
+ *   6. Which projects serve this objective?
+ *
+ * The sixth is the one that needed the motivation kinds to exist in the
+ * referential rather than only in each document. Asked of a goal that lives in
+ * one document, it can only ever answer "this one".
  *
  * Every one returns a table — columns and rows — for a reason that is not
  * laziness. The answers have to leave: a standalone HTML file cannot carry a
@@ -34,7 +39,7 @@ export interface QueryResult {
 }
 
 export const QUERIES = [
-  'dependents', 'capability', 'coverage', 'standard', 'orphans'
+  'dependents', 'capability', 'coverage', 'standard', 'orphans', 'traceability'
 ] as const;
 export type QueryName = (typeof QUERIES)[number];
 
@@ -46,7 +51,8 @@ export const QUERY_LABELS: Record<QueryName, string> = {
   capability: 'Applications carrying a capability',
   coverage: 'Capability coverage',
   standard: 'Who still uses a technology',
-  orphans: 'What nobody filled in'
+  orphans: 'What nobody filled in',
+  traceability: 'Projects serving an objective'
 };
 
 export const QUERY_BLURBS: Record<QueryName, string> = {
@@ -54,7 +60,8 @@ export const QUERY_BLURBS: Record<QueryName, string> = {
   capability: 'Which applications carry a capability — including everything under it in the tree.',
   coverage: 'Where a capability is carried by nobody, and where several applications carry the same one.',
   standard: 'Applications and components still on a given technology, wherever they are drawn.',
-  orphans: 'Components with no application, applications with no capability, entities nobody cites.'
+  orphans: 'Components with no application, applications with no capability, entities nobody cites.',
+  traceability: 'Every project whose reasoning cites an objective — including the sub-goals under it.'
 };
 
 /** Whether a query needs a subject, and of which kind. */
@@ -63,7 +70,8 @@ export const QUERY_SUBJECT: Record<QueryName, EntityKind | null> = {
   capability: 'capability',
   coverage: null,
   standard: 'technology-standard',
-  orphans: null
+  orphans: null,
+  traceability: 'goal'
 };
 
 const name = (graph: Graph, id: string) => graph.entities.get(id)?.name ?? id;
@@ -338,6 +346,47 @@ export function orphans(graph: Graph): QueryResult {
   };
 }
 
+/* ------------------------------------------------------- 6. traceability */
+
+/** Which projects say they serve an objective.
+ *
+ *  Reads the same index every other query reads. A document's reasoning cites a
+ *  shared goal in one of two directions — it restates it, or it names something
+ *  that serves it — and both are worth listing: the second is the stronger
+ *  claim, and a goal with nothing but restatements is a goal nobody has yet
+ *  attached any work to.
+ *
+ *  Sub-goals count, for the same reason sub-capabilities do: "what serves the
+ *  2027 cost objective" means it and everything it decomposes into. */
+export function objectiveTraceability(graph: Graph, id: string): QueryResult {
+  const wanted = subtree(id);
+  const subject = graph.entities.get(id);
+  const holes = [...wanted].map(() => '?').join(', ');
+
+  const rows = db.prepare(`
+    SELECT p.name AS project, l.entity_id AS goal, l.role AS role, count(*) AS n
+    FROM project_entity_links l
+    JOIN projects p ON p.id = l.project_id
+    WHERE l.entity_id IN (${holes}) AND l.role IN ('motivation', 'realizes')
+    GROUP BY p.name, l.entity_id, l.role
+    ORDER BY p.name COLLATE NOCASE
+  `).all(...wanted) as { project: string; goal: string; role: string; n: number }[];
+
+  return {
+    title: `Projects serving ${subject?.name ?? id}`,
+    columns: ['Project', 'Objective', 'How', 'Mentions'],
+    rows: rows.map(r => [
+      r.project,
+      name(graph, r.goal),
+      r.role === 'motivation' ? 'States it as its own' : 'Names what serves it',
+      String(r.n)
+    ]),
+    empty: 'No project cites it. Either nothing has been funded against it, or nobody '
+      + 'has said so in a document.',
+    note: wanted.size > 1 ? `Includes the ${wanted.size - 1} objectives under it.` : undefined
+  };
+}
+
 /* ------------------------------------------------------------- dispatch */
 
 /** Run one query by name. The single entry point the route and the export both
@@ -355,6 +404,8 @@ export function runQuery(query: QueryName, subject?: string, graph?: Graph): Que
       return subject ? standardUsage(g, subject) : needsSubject('a technology standard');
     case 'orphans':
       return orphans(g);
+    case 'traceability':
+      return subject ? objectiveTraceability(g, subject) : needsSubject('an objective');
   }
 }
 

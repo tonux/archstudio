@@ -7,7 +7,7 @@ import { Lockup } from '../Brand';
 import { api } from '@/lib/api';
 import { ENTITY_LABELS, type EntityKind, type EntitySummary, type StandardStatus } from '@/lib/ea/types';
 
-/* The five questions, asked.
+/* The six questions, asked.
  *
  * Every answer is a table, and that is not a UI shortcut — it is the shape a
  * question has to have in order to *leave*. A computed section in the design

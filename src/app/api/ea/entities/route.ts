@@ -2,7 +2,8 @@ import { NextResponse } from 'next/server';
 
 import { authorize } from '@/lib/auth/guard';
 import {
-  createEntity, deleteEntity, listEntities, updateEntity, usage
+  createEntity, deleteEntity, entity, listEntities, listResolvedRelations,
+  updateEntity, usage
 } from '@/lib/ea/repository';
 import { isEntityKind } from '@/lib/ea/types';
 
@@ -12,7 +13,12 @@ export const dynamic = 'force-dynamic';
 /* The referential's entities.
  *
  * `?usage=<id>` answers the question the whole thing exists for — which
- * projects cite this entity, through which components. */
+ * projects cite this entity, through which components.
+ *
+ * `?entity=<id>` is the other half: one row with everything a listing leaves
+ * out — its free attributes, its relationships with both ends named, and the
+ * projects citing it. One request rather than three, because they are always
+ * read together and a detail panel that paints in three stages reads as broken. */
 export async function GET(req: Request) {
   const denied = await authorize('read', { kind: 'referential' });
   if (denied) return denied;
@@ -20,6 +26,17 @@ export async function GET(req: Request) {
   const url = new URL(req.url);
   const of = url.searchParams.get('usage');
   if (of) return NextResponse.json({ usage: usage(of) });
+
+  const one = url.searchParams.get('entity');
+  if (one) {
+    const found = entity(one);
+    if (!found) return NextResponse.json({ error: 'No such entity.' }, { status: 404 });
+    return NextResponse.json({
+      entity: found,
+      relations: listResolvedRelations(one),
+      usage: usage(one)
+    });
+  }
 
   const kind = url.searchParams.get('kind');
   return NextResponse.json({
@@ -42,7 +59,14 @@ export async function POST(req: Request) {
       code: body.code,
       parent: body.parent,
       status: body.status,
-      description: body.description
+      lifecycle: body.lifecycle,
+      criticality: body.criticality,
+      description: body.description,
+      source: body.source,
+      externalId: body.externalId,
+      startsOn: body.startsOn,
+      endsOn: body.endsOn,
+      props: body.props
     }));
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 400 });

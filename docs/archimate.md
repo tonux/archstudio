@@ -187,27 +187,56 @@ layer exists. `?plateau=` still works on this format, and then exports that sing
 |---|---|
 | Motivation item | `Driver` / `Goal` / `Principle` / `Requirement` / `Constraint` / `Assessment` |
 | What realises it | `Component --Realization--> Item` |
-| A capability the document cites | `Capability`, from the imprint |
+| Any entity the document cites | its own element type, from the imprint — see below |
+| A cited entity inside its parent | `Parent --Composition--> Child` |
 | A component carrying a capability | `Component --Realization--> Capability` |
+| A component and its owner | `Actor --Assignment--> Component` |
+| A component and a business object | `Component --Access--> Object` |
+| A motivation item restating a shared one | `SharedItem --Influence--> Item` |
 | Flow | `BusinessProcess`, or `ValueStream` when the flow says so |
 | A component in a flow's steps | `Component --Serving--> Process` |
 
 The six motivation words map one for one because they were taken from ArchiMate in the
 first place — this is transcription, not a mapping decision.
 
+### Every referential kind
+
+`ENTITY_ELEMENT` in `profile.ts`. Eleven of the twelve are transcription for the same
+reason the motivation words are:
+
+| Kind | Element | Kind | Element |
+|---|---|---|---|
+| `capability` | `Capability` | `application` | `ApplicationComponent` |
+| `business-process` | `BusinessProcess` | `technology-standard` | `SystemSoftware` |
+| `business-service` | `BusinessService` | `driver` | `Driver` |
+| `business-object` | `BusinessObject` | `goal` | `Goal` |
+| `actor` | `BusinessActor` | `principle` | `Principle` |
+| `domain` | `Grouping` | `requirement` | `Requirement` |
+
+`domain` is the judgement call. A slice of the organisation is not an ArchiMate element —
+it is how an organisation is cut up, which the standard leaves to `Grouping` on purpose.
+Mapping it to `BusinessActor` would have been the tempting mistake: a domain is not
+somebody, and an importer reading it as one would start assigning work to a budget line.
+
 **`Realization` runs concrete → abstract.** A component realises a goal, never the other
 way round. It is the same direction `realizedBy` reads in, which is why the field is named
 that way.
 
-Capabilities come from the document's **imprint** rather than from the referential, so the
-exported model names exactly what the exported HTML names.
+Entities come from the document's **imprint** rather than from the referential, so the
+exported model names exactly what the exported HTML names — and the imprint only ever
+holds what is actually cited, so a document citing no process exports byte-for-byte as it
+did before processes existed.
 
 ---
 
 ## Not exported yet
 
-The editorial sections, and the referential's `business-object` and `actor` entities beyond
-what a component cites. Nothing else is missing.
+The editorial sections, and the referential's **own relationship graph**. The export reads
+a document's imprint, and the imprint carries entities rather than the edges between them —
+so a `realizes` somebody declared in the referential reaches an export only when a document
+draws it. Widening the imprint to carry edges would grow every exported file for a fact
+most readers of that file cannot act on; the ArchiMate model an architect wants the whole
+graph in is a referential-level export, which is its own job. Nothing else is missing.
 
 ---
 

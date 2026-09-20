@@ -10,9 +10,16 @@
  */
 import { db, now, plain, plainAll, uid } from '../db';
 import {
-  isEntityKind, isRelationKind, isStandardStatus, NESTING_KINDS,
-  type Entity, type EntityKind, type EntitySummary, type Relation, type RelationKind
+  CRITICALITY_KINDS, isCriticality, isEntityKind, isLifecycle, isRelationKind,
+  isStandardStatus, LIFECYCLE_KINDS, NESTING_KINDS, RELATION_ENDS, STATUS_KINDS,
+  type Entity, type EntityKind, type EntitySummary, type Relation, type RelationKind,
+  type ResolvedRelation
 } from './types';
+
+const text = (o: Record<string, unknown>, key: string): string | undefined => {
+  const v = o[key];
+  return typeof v === 'string' && v ? v : undefined;
+};
 
 const toEntity = (o: Record<string, unknown>): Entity => {
   const e: Entity = {
@@ -23,23 +30,46 @@ const toEntity = (o: Record<string, unknown>): Entity => {
   if (o.code) e.code = o.code as string;
   if (o.parent_id) e.parent = o.parent_id as string;
   if (o.status) e.status = o.status as Entity['status'];
+  if (o.lifecycle) e.lifecycle = o.lifecycle as Entity['lifecycle'];
+  if (o.criticality) e.criticality = o.criticality as Entity['criticality'];
   if (o.description) e.description = o.description as string;
+  const source = text(o, 'source');
+  if (source) e.source = source;
+  const externalId = text(o, 'external_id');
+  if (externalId) e.externalId = externalId;
+  const startsOn = text(o, 'starts_on');
+  if (startsOn) e.startsOn = startsOn;
+  const endsOn = text(o, 'ends_on');
+  if (endsOn) e.endsOn = endsOn;
   return e;
 };
 
 /* The description rides along on every read. One join rather than a second
  * query per row, and English for now — the bilingual column exists because the
  * rest of the catalog is bilingual and adding it later would be a migration. */
+const COLUMNS = `e.id, e.kind, e.code, e.name, e.parent_id, e.status, e.lifecycle,
+  e.criticality, e.source, e.external_id, e.starts_on, e.ends_on, t.description`;
+
 const SELECT = `
-  SELECT e.id, e.kind, e.code, e.name, e.parent_id, e.status, t.description
+  SELECT ${COLUMNS}
   FROM ea_entities e
   LEFT JOIN ea_entity_texts t ON t.entity_id = e.id AND t.lang = 'en'`;
 
 /* ------------------------------------------------------------- reading */
 
+/** One entity, with its free attributes.
+ *
+ *  Props are loaded here and nowhere else. A listing that joined them would
+ *  return one row per key and force the caller to regroup, for a value no
+ *  listing shows — so the second query is paid once, by the only screen that
+ *  displays them. */
 export function entity(id: string): Entity | null {
   const row = db.prepare(`${SELECT} WHERE e.id = ?`).get(id);
-  return row ? toEntity(plain(row)) : null;
+  if (!row) return null;
+  const e = toEntity(plain(row));
+  const props = readProps(id);
+  if (props) e.props = props;
+  return e;
 }
 
 export function entitiesByIds(ids: string[]): Entity[] {
@@ -55,6 +85,17 @@ export function entityByCode(kind: EntityKind, code: string): Entity | null {
   return row ? toEntity(plain(row)) : null;
 }
 
+/** The row a system of record already knows about, whatever it is called here.
+ *
+ *  The key an import matches on before it considers code or name: a source's own
+ *  id is the only identifier that survives somebody renaming the thing. */
+export function entityBySource(source: string, externalId: string): Entity | null {
+  const row = db.prepare(
+    `${SELECT} WHERE lower(e.source) = lower(?) AND lower(e.external_id) = lower(?)`
+  ).get(source.trim(), externalId.trim());
+  return row ? toEntity(plain(row)) : null;
+}
+
 /** All entities of a kind, or all of them, each with how many projects cite it.
  *
  *  The count comes from the index rather than from the documents, which is what
@@ -62,7 +103,7 @@ export function entityByCode(kind: EntityKind, code: string): Entity | null {
 export function listEntities(kind?: EntityKind): EntitySummary[] {
   const where = kind ? 'WHERE e.kind = ?' : '';
   const rows = db.prepare(`
-    SELECT e.id, e.kind, e.code, e.name, e.parent_id, e.status, t.description,
+    SELECT ${COLUMNS},
            (SELECT count(DISTINCT l.project_id) FROM project_entity_links l
              WHERE l.entity_id = e.id) AS used_by
     FROM ea_entities e
@@ -105,6 +146,33 @@ export function usage(entityId: string): Usage[] {
   }));
 }
 
+/* ------------------------------------------------------- free attributes */
+
+function readProps(id: string): Record<string, string> | undefined {
+  const rows = plainAll<{ key: string; value: string }>(
+    db.prepare('SELECT key, value FROM ea_entity_props WHERE entity_id = ? ORDER BY key').all(id)
+  );
+  if (!rows.length) return undefined;
+  return Object.fromEntries(rows.map(r => [r.key, r.value]));
+}
+
+/** Replace the whole set, because a patch of a bag of keys has no meaning that
+ *  every caller would read the same way: "the props are now these" does. */
+function writeProps(id: string, props: Record<string, string> | null | undefined): void {
+  if (props === undefined) return;
+  db.prepare('DELETE FROM ea_entity_props WHERE entity_id = ?').run(id);
+  if (!props) return;
+  const insert = db.prepare(
+    'INSERT OR REPLACE INTO ea_entity_props (entity_id, key, value) VALUES (?, ?, ?)'
+  );
+  for (const [rawKey, rawValue] of Object.entries(props)) {
+    const key = rawKey.trim();
+    const value = typeof rawValue === 'string' ? rawValue.trim() : '';
+    /* An empty value is how a key is removed, so it is never stored. */
+    if (key && value) insert.run(id, key, value);
+  }
+}
+
 /* ------------------------------------------------------------- writing */
 
 export interface EntityPatch {
@@ -113,14 +181,22 @@ export interface EntityPatch {
   name?: string;
   parent?: string | null;
   status?: string | null;
+  lifecycle?: string | null;
+  criticality?: string | null;
   description?: string | null;
+  source?: string | null;
+  externalId?: string | null;
+  startsOn?: string | null;
+  endsOn?: string | null;
+  props?: Record<string, string> | null;
 }
 
 /** Whether making `parent` the parent of `id` would close a loop.
  *
- *  Capabilities and domains nest, and every reader walks that chain: a cycle is
- *  not a wrong tree, it is an infinite loop in whatever renders it. The same
- *  guard `normalizeZones` applies to zones, for the same reason. */
+ *  Capabilities, domains, processes and goals nest, and every reader walks that
+ *  chain: a cycle is not a wrong tree, it is an infinite loop in whatever
+ *  renders it. The same guard `normalizeZones` applies to zones, for the same
+ *  reason. */
 export function wouldCycle(id: string, parent: string | null | undefined): boolean {
   if (!parent) return false;
   if (parent === id) return true;
@@ -136,6 +212,15 @@ export function wouldCycle(id: string, parent: string | null | undefined): boole
   return false;
 }
 
+/* Each of the three closed vocabularies is legal only on the kinds it describes.
+ * Written as one helper rather than three branches so a new vocabulary is one
+ * line here and not a fourth shape to remember. */
+const gated = <T>(
+  kind: EntityKind, kinds: EntityKind[], value: unknown, ok: (v: unknown) => v is T
+): T | null => (kinds.includes(kind) && ok(value) ? value : null);
+
+const trimmed = (v: string | null | undefined): string | null => v?.trim() || null;
+
 export function createEntity(input: EntityPatch & { kind: EntityKind; name: string }): Entity {
   if (!isEntityKind(input.kind)) throw new Error('Unknown kind.');
   const name = input.name.trim();
@@ -144,14 +229,23 @@ export function createEntity(input: EntityPatch & { kind: EntityKind; name: stri
   const id = uid('e_');
   const parent = NESTING_KINDS.includes(input.kind) && input.parent && !wouldCycle(id, input.parent)
     ? input.parent : null;
-  const status = input.kind === 'technology-standard' && isStandardStatus(input.status)
-    ? input.status : null;
 
   db.prepare(
-    'INSERT INTO ea_entities (id, kind, code, name, parent_id, status) VALUES (?, ?, ?, ?, ?, ?)'
-  ).run(id, input.kind, input.code?.trim() || null, name, parent, status);
+    `INSERT INTO ea_entities
+       (id, kind, code, name, parent_id, status, lifecycle, criticality,
+        source, external_id, starts_on, ends_on)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    id, input.kind, trimmed(input.code), name, parent,
+    gated(input.kind, STATUS_KINDS, input.status, isStandardStatus),
+    gated(input.kind, LIFECYCLE_KINDS, input.lifecycle, isLifecycle),
+    gated(input.kind, CRITICALITY_KINDS, input.criticality, isCriticality),
+    trimmed(input.source), trimmed(input.externalId),
+    trimmed(input.startsOn), trimmed(input.endsOn)
+  );
 
   writeDescription(id, input.description);
+  writeProps(id, input.props);
   return entity(id)!;
 }
 
@@ -161,13 +255,14 @@ export function updateEntity(id: string, patch: EntityPatch): Entity | null {
 
   const sets: string[] = [];
   const vals: (string | null)[] = [];
+  const set = (column: string, value: string | null) => { sets.push(`${column} = ?`); vals.push(value); };
 
   if (patch.name !== undefined) {
     const name = patch.name.trim();
     if (!name) throw new Error('A name is required.');
-    sets.push('name = ?'); vals.push(name);
+    set('name', name);
   }
-  if (patch.code !== undefined) { sets.push('code = ?'); vals.push(patch.code?.trim() || null); }
+  if (patch.code !== undefined) set('code', trimmed(patch.code));
   if (patch.parent !== undefined) {
     /* Silently refusing a cycle would leave the caller thinking the move
      * happened. Refusing loudly is the only honest option. */
@@ -175,21 +270,50 @@ export function updateEntity(id: string, patch: EntityPatch): Entity | null {
       throw new Error('That would put this inside one of its own descendants.');
     }
     const allowed = NESTING_KINDS.includes(current.kind);
-    sets.push('parent_id = ?'); vals.push(allowed ? patch.parent || null : null);
+    set('parent_id', allowed ? patch.parent || null : null);
   }
   if (patch.status !== undefined) {
-    sets.push('status = ?');
-    vals.push(current.kind === 'technology-standard' && isStandardStatus(patch.status)
-      ? patch.status : null);
+    set('status', gated(current.kind, STATUS_KINDS, patch.status, isStandardStatus));
   }
+  if (patch.lifecycle !== undefined) {
+    set('lifecycle', gated(current.kind, LIFECYCLE_KINDS, patch.lifecycle, isLifecycle));
+  }
+  if (patch.criticality !== undefined) {
+    set('criticality', gated(current.kind, CRITICALITY_KINDS, patch.criticality, isCriticality));
+  }
+  if (patch.source !== undefined) set('source', trimmed(patch.source));
+  if (patch.externalId !== undefined) set('external_id', trimmed(patch.externalId));
+  if (patch.startsOn !== undefined) set('starts_on', trimmed(patch.startsOn));
+  if (patch.endsOn !== undefined) set('ends_on', trimmed(patch.endsOn));
 
   if (sets.length) {
-    sets.push('updated_at = ?'); vals.push(now());
+    set('updated_at', now());
     db.prepare(`UPDATE ea_entities SET ${sets.join(', ')} WHERE id = ?`).run(...vals, id);
   }
   if (patch.description !== undefined) writeDescription(id, patch.description);
+  if (patch.props !== undefined) writeProps(id, patch.props);
 
   return entity(id);
+}
+
+/** Create or update, matched on the source's own key.
+ *
+ *  The one entry point an ingestion uses, and the reason `source` and
+ *  `externalId` exist: running the same feed twice has to leave the referential
+ *  where the first run left it. Matching on name would make a rename a
+ *  duplicate; matching on code only works for the organisations that have one. */
+export function upsertBySource(
+  source: string, externalId: string, input: EntityPatch & { kind: EntityKind; name: string }
+): { entity: Entity; created: boolean } {
+  const existing = entityBySource(source, externalId);
+  if (existing) {
+    /* The kind is not patched from a feed. A row that changed kind is a
+     * different thing wearing the same key, and silently rewriting it would
+     * take every citation of it along. */
+    const { kind: _ignored, ...rest } = input;
+    return { entity: updateEntity(existing.id, rest)!, created: false };
+  }
+  return { entity: createEntity({ ...input, source, externalId }), created: true };
 }
 
 function writeDescription(id: string, description: string | null | undefined): void {
@@ -238,10 +362,53 @@ export function listRelations(entityId?: string): Relation[] {
   return plainAll<Record<string, unknown>>(rows).map(toRelation);
 }
 
+/** The same rows with both ends named.
+ *
+ *  Joined here rather than in the browser: the neighbourhood of one entity is
+ *  the screen that shows relations, and it would otherwise have to fetch the
+ *  whole entity list to render four rows. */
+export function listResolvedRelations(entityId?: string): ResolvedRelation[] {
+  const where = entityId ? 'WHERE r.from_id = ? OR r.to_id = ?' : '';
+  const rows = db.prepare(`
+    SELECT r.*, f.name AS from_name, f.kind AS from_kind, t.name AS to_name, t.kind AS to_kind
+    FROM ea_relations r
+    JOIN ea_entities f ON f.id = r.from_id
+    JOIN ea_entities t ON t.id = r.to_id
+    ${where}
+    ORDER BY r.kind, f.name COLLATE NOCASE, t.name COLLATE NOCASE
+  `).all(...(entityId ? [entityId, entityId] : []));
+
+  return plainAll<Record<string, unknown>>(rows).map(o => ({
+    ...toRelation(o),
+    fromName: o.from_name as string,
+    fromKind: o.from_kind as EntityKind,
+    toName: o.to_name as string,
+    toKind: o.to_kind as EntityKind
+  }));
+}
+
+/** Why a relationship was refused, or null when it would be accepted.
+ *
+ *  Separate from `createRelation` so the editor can grey out what would fail
+ *  instead of letting somebody find out by pressing the button. */
+export function relationProblem(
+  kind: RelationKind, from: string, to: string
+): string | null {
+  if (!isRelationKind(kind)) return 'Unknown relationship.';
+  if (from === to) return 'Something cannot relate to itself.';
+  const a = entity(from);
+  const b = entity(to);
+  if (!a || !b) return 'Both ends have to exist.';
+
+  const ends = RELATION_ENDS[kind];
+  if (!ends.from.includes(a.kind)) return `A ${a.kind} cannot be the start of "${kind}".`;
+  if (!ends.to.includes(b.kind)) return `"${kind}" cannot point at a ${b.kind}.`;
+  return null;
+}
+
 export function createRelation(kind: RelationKind, from: string, to: string, note?: string): Relation {
-  if (!isRelationKind(kind)) throw new Error('Unknown relationship.');
-  if (from === to) throw new Error('Something cannot relate to itself.');
-  if (!entity(from) || !entity(to)) throw new Error('Both ends have to exist.');
+  const problem = relationProblem(kind, from, to);
+  if (problem) throw new Error(problem);
 
   const existing = db.prepare('SELECT * FROM ea_relations WHERE kind = ? AND from_id = ? AND to_id = ?')
     .get(kind, from, to);

@@ -6,10 +6,10 @@
  * hundred violations and no owners is a report that gets filed; the owner is
  * what turns it into work.
  *
- * The rules are not configurable, and that is a decision rather than a gap. Six
- * rules everybody understands beat a rule engine nobody configures — and each
- * of these is derived from data the app already has, so none of them can be
- * true-but-unmeasurable.
+ * The rules are not configurable, and that is a decision rather than a gap. A
+ * handful of rules everybody understands beat a rule engine nobody configures —
+ * and each of these is derived from data the app already has, so none of them
+ * can be true-but-unmeasurable.
  *
  * A finding is not automatically a mistake. A brand-new application has no
  * owner yet and that is fine; the report's job is to make it visible, not to
@@ -73,6 +73,21 @@ export const RULES: Rule[] = [
     id: 'domain',
     title: 'Every project belongs to a domain',
     says: 'A project with no owning domain is a project no domain architect can review.',
+    severity: 'gap'
+  },
+  {
+    id: 'retired-live',
+    title: 'Nothing retired is still on a diagram',
+    says: 'An application marked retired that a current diagram still draws is either '
+      + 'a decommissioning nobody finished or a referential that is out of date. '
+      + 'Both are worth knowing.',
+    severity: 'risk'
+  },
+  {
+    id: 'unserved-goal',
+    title: 'Every objective has work behind it',
+    says: 'An objective no project cites is one nothing has been funded against — '
+      + 'or one nobody remembered to write down.',
     severity: 'gap'
   }
 ];
@@ -230,6 +245,38 @@ export function check(graph?: Graph): Finding[] {
     }
     /* 6 — a project with no owning domain. */
     if (!domainId) push('domain', p.name, 'No domain owns it.', NOBODY);
+  }
+
+  /* 7 — retired, and still drawn. `drawnIn` is what the index already knows, so
+   * this costs nothing beyond the lifecycle column: an application is in it
+   * precisely when some current document cites it. */
+  for (const app of g.nodes.values()) {
+    if (app.lifecycle !== 'retired' || !app.drawnIn.size) continue;
+    const where = app.drawnIn.size === 1 ? '1 project' : `${app.drawnIn.size} projects`;
+    push('retired-live', app.name,
+      `Marked retired, still drawn in ${where}.`, ownerOf.get(app.id) ?? NOBODY);
+  }
+
+  /* 8 — objectives nothing cites. Rolled up the way capabilities are: a goal
+   * whose sub-goals have work behind them has work behind it, and reporting the
+   * parent as unserved would be the same noise rule 4 avoids. */
+  const servedGoals = new Set(
+    (db.prepare(
+      "SELECT DISTINCT entity_id FROM project_entity_links WHERE role IN ('motivation', 'realizes')"
+    ).all() as { entity_id: string }[]).map(r => r.entity_id)
+  );
+  const goalParent = new Map(
+    (db.prepare("SELECT id, parent_id FROM ea_entities WHERE kind = 'goal'").all() as
+      { id: string; parent_id: string | null }[]).map(r => [r.id, r.parent_id])
+  );
+  for (const id of [...servedGoals]) {
+    const seen = new Set<string>([id]);
+    let at = goalParent.get(id) ?? null;
+    while (at && !seen.has(at)) { seen.add(at); servedGoals.add(at); at = goalParent.get(at) ?? null; }
+  }
+  for (const e of g.entities.values()) {
+    if (e.kind !== 'goal' || servedGoals.has(e.id)) continue;
+    push('unserved-goal', e.name, 'No project cites it, and nothing under it does either.', NOBODY);
   }
 
   return out.sort((a, b) =>

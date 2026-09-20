@@ -1,7 +1,9 @@
 import { NextResponse } from 'next/server';
 
 import { authorize } from '@/lib/auth/guard';
-import { createRelation, deleteRelation, listRelations } from '@/lib/ea/repository';
+import {
+  createRelation, deleteRelation, listRelations, listResolvedRelations
+} from '@/lib/ea/repository';
 import { isRelationKind } from '@/lib/ea/types';
 
 export const runtime = 'nodejs';
@@ -11,8 +13,15 @@ export async function GET(req: Request) {
   const denied = await authorize('read', { kind: 'referential' });
   if (denied) return denied;
 
-  const of = new URL(req.url).searchParams.get('entity') ?? undefined;
-  return NextResponse.json({ relations: listRelations(of) });
+  const url = new URL(req.url);
+  const of = url.searchParams.get('entity') ?? undefined;
+  /* Both ends named, for anything that draws a neighbourhood. The bare form
+   * stays the default so nothing that reads ids pays for the two joins. */
+  return NextResponse.json({
+    relations: url.searchParams.get('resolved') === '1'
+      ? listResolvedRelations(of)
+      : listRelations(of)
+  });
 }
 
 export async function POST(req: Request) {

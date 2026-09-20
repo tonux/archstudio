@@ -20,7 +20,7 @@
  * in `hydrate.ts`.
  */
 import type { Architecture, Component } from '../types';
-import { isEntityKind, ROLE_KIND, type ComponentEa, type Imprint, type ImprintEntity, type LinkRole } from './types';
+import { isEntityKind, ROLE_KINDS, type ComponentEa, type Imprint, type ImprintEntity, type LinkRole } from './types';
 
 /** Every entity id a component cites, with the role it cites it in. */
 export function citations(c: Component): { id: string; role: LinkRole }[] {
@@ -34,10 +34,43 @@ export function citations(c: Component): { id: string; role: LinkRole }[] {
   return out;
 }
 
-/** Every entity id cited anywhere in the document. */
+/** Every entity id the document's *own reasoning* cites.
+ *
+ *  Two roles, from opposite ends of one sentence: `motivation` is the shared
+ *  driver or goal an item restates, `realizes` is whatever the item names as
+ *  serving it. `realizedBy` mixes component ids and entity ids in one list on
+ *  purpose — a reader does not care which side of the model realises a goal —
+ *  so anything that is not a component here is taken to be an entity.
+ *
+ *  `owner` carries the motivation item's id rather than a component's, which is
+ *  what lets the index key these rows without inventing a fake component. */
+export function motivationCitations(
+  doc: Architecture
+): { id: string; role: LinkRole; owner: string }[] {
+  const items = doc.motivation?.items || [];
+  if (!items.length) return [];
+  const componentIds = new Set((doc.components || []).map(c => c.id));
+  const out: { id: string; role: LinkRole; owner: string }[] = [];
+  for (const item of items) {
+    if (item.entity) out.push({ id: item.entity, role: 'motivation', owner: item.id });
+    for (const ref of item.realizedBy || []) {
+      if (!componentIds.has(ref)) out.push({ id: ref, role: 'realizes', owner: item.id });
+    }
+  }
+  return out;
+}
+
+/** Every entity id cited anywhere in the document.
+ *
+ *  Components *and* the motivation block. Leaving the second one out was a quiet
+ *  bug: rule 2 below prunes any imprint entry nobody cites, so an entity only a
+ *  goal referred to was dropped from the imprint on one save and then dropped
+ *  from the goal on the next, because `normalizeMotivation` keeps only what the
+ *  imprint backs. Two saves and the citation was gone with nothing logged. */
 export function citedIds(doc: Architecture): Set<string> {
   const out = new Set<string>();
   (doc.components || []).forEach(c => citations(c).forEach(x => out.add(x.id)));
+  motivationCitations(doc).forEach(x => out.add(x.id));
   return out;
 }
 
@@ -91,8 +124,8 @@ function normalizeComponentEa(
    * the kind the role requires. Pointing `owner` at a capability is not a
    * smaller mistake than pointing it at nothing. */
   const ofKind = (role: LinkRole) => {
-    const want = ROLE_KIND[role];
-    return new Set([...byId.values()].filter(e => e.kind === want).map(e => e.id));
+    const want = ROLE_KINDS[role];
+    return new Set([...byId.values()].filter(e => want.includes(e.kind)).map(e => e.id));
   };
 
   const out: ComponentEa = {};
@@ -168,6 +201,26 @@ const stripParent = (e: ImprintEntity): ImprintEntity => {
  *  renderer all need, and the only way any of them should resolve an id. */
 export const imprintIndex = (doc: Architecture): Map<string, ImprintEntity> =>
   new Map(((doc as { imprint?: Imprint }).imprint?.entities || []).map(e => [e.id, e]));
+
+/** Put an entity into the document's imprint if it is not there yet.
+ *
+ *  Optimistic only. The server rewrites the whole imprint from the referential
+ *  on every save, so anything wrong here is corrected within one autosave — but
+ *  without it a newly picked entity would render as its id until then, which
+ *  looks broken.
+ *
+ *  Lives here rather than beside one picker because there are now two — a
+ *  component citing an application, and a motivation item citing a shared
+ *  objective — and a second copy would be a second place for the sort order to
+ *  drift, which shows up as a document that reports an edit nobody made. */
+export function rememberInImprint(doc: Architecture, entry: ImprintEntity): void {
+  const imprint = (doc as { imprint?: Imprint }).imprint || { entities: [] };
+  if (imprint.entities.some(e => e.id === entry.id)) return;
+  (doc as { imprint?: Imprint }).imprint = {
+    ...imprint,
+    entities: [...imprint.entities, entry].sort((a, b) => a.id.localeCompare(b.id))
+  };
+}
 
 /** "Sales › Billing" — an entity in its tree, using only what the document
  *  carries. Stops on a cycle, which normalisation should already have made

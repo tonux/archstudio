@@ -310,8 +310,12 @@ export function normalizeArchitecture(input: Partial<Architecture>): Architectur
    * to go with it. */
   doc.motivation = normalizeMotivation(
     (input as { motivation?: unknown }).motivation, compIds,
-    new Set(((input as { imprint?: { entities?: { id: string }[] } }).imprint?.entities || [])
-      .map(e => e.id))
+    /* The kinds travel with the ids, not just the ids: an item citing a shared
+     * goal has to be told apart from one citing an application, and the imprint
+     * is the only thing here that knows which is which. */
+    new Map(((input as {
+      imprint?: { entities?: { id: string; kind: import('./ea/types').EntityKind }[] }
+    }).imprint?.entities || []).map(e => [e.id, e.kind]))
   );
   if (!doc.motivation) delete doc.motivation;
 
@@ -487,7 +491,7 @@ export const SECTION_TYPES: { type: SectionType; label: string; blurb: string }[
   { type: 'compare',  label: 'Compare',   blurb: 'Two or more poles side by side, plus a comparison table.' },
   { type: 'capability-map', label: 'Capability map',
     blurb: 'The capability tree as nested boxes, with how many applications carry each one. Filled from the referential at export.' },
-  { type: 'text',     label: 'Text',      blurb: 'Prose blocks — the least structured of the five.' }
+  { type: 'text',     label: 'Text',      blurb: 'Prose blocks — the least structured of them.' }
 ];
 
 /** A new section of `type`, with an id unique within `taken`. */

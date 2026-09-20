@@ -286,10 +286,18 @@ export interface Flow {
  * Why the architecture is the way it is: the drivers behind it, what it is
  * trying to achieve, the rules it holds to.
  *
- * These live in the *document* rather than in the enterprise referential, and
- * that is deliberate. A capability is a fact about the organisation and belongs
- * to everyone; the reasoning behind one architecture belongs to that
- * architecture, and copying it into a shared table would make it nobody's.
+ * The block lives in the *document*, and that is still deliberate: a capability
+ * is a fact about the organisation and belongs to everyone, while the reasoning
+ * behind one architecture belongs to that architecture, and moving it wholesale
+ * into a shared table would make it nobody's.
+ *
+ * What an item may do is *cite* a shared one. Some reasoning genuinely is the
+ * enterprise's rather than this document's — a regulation, an architecture
+ * principle the board signed, an objective three programmes are funded against —
+ * and retyping it per document makes "which projects serve this objective" a
+ * reading exercise instead of a query. So `entity` points at a driver, goal,
+ * principle or requirement in the referential, the document keeps its own
+ * wording around it, and the citation is indexed like any other.
  *
  * The value is not a picture. It is that "which components serve this goal" and
  * "what does this principle actually constrain" become questions with an
@@ -311,6 +319,13 @@ export interface MotivationItem {
    *  concrete to the abstract, so a component realises a goal and the goal is
    *  *realised by* it. Unknown ids are dropped on read. */
   realizedBy?: string[];
+  /** The shared driver, goal, principle or requirement this item is a local
+   *  statement of, when there is one.
+   *
+   *  Optional, and absent on every item that is this document's own reasoning.
+   *  Dropped on read unless the imprint backs it with an entity of one of the
+   *  four motivation kinds — the same rule every other citation obeys. */
+  entity?: string;
 }
 
 export interface Motivation { items: MotivationItem[] }

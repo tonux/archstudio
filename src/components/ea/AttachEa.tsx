@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
-import { entityPath, imprintIndex } from '@/lib/ea/imprint';
+import { entityPath, imprintIndex, rememberInImprint } from '@/lib/ea/imprint';
 import { ENTITY_LABELS, type EntitySummary } from '@/lib/ea/types';
 import type { Architecture, Component } from '@/lib/types';
 
@@ -61,14 +61,14 @@ export function AttachEa({ doc, comp, set }: {
          the editor showing the right name straight away. The next save
          overwrites it with whatever the referential says, which is the
          authority — this is only the optimistic half. */
-      if (value && entity) rememberInImprint(doc, entity);
+      if (value && entity) rememberInImprint(doc, asEntry(entity));
     });
 
   const toggleMany = (key: 'capabilities' | 'objects', id: string, entity?: EntitySummary) =>
     set(c => {
       const next = { ...(c.ea || {}) };
       const list = new Set(next[key] || []);
-      if (list.has(id)) list.delete(id); else { list.add(id); if (entity) rememberInImprint(doc, entity); }
+      if (list.has(id)) list.delete(id); else { list.add(id); if (entity) rememberInImprint(doc, asEntry(entity)); }
       if (list.size) next[key] = [...list]; else delete next[key];
       c.ea = Object.keys(next).length ? next : undefined;
     });
@@ -120,21 +120,9 @@ export function AttachEa({ doc, comp, set }: {
   );
 }
 
-/** Put an entity into the document's imprint if it is not there yet.
- *
- *  Optimistic only. The server rewrites the whole imprint from the referential
- *  on every save, so anything wrong here is corrected within one autosave — but
- *  without it the newly picked entity would render as its id until then, which
- *  looks broken. */
-function rememberInImprint(doc: Architecture, entity: EntitySummary): void {
-  const imprint = doc.imprint || { entities: [] };
-  if (imprint.entities.some(e => e.id === entity.id)) return;
-  doc.imprint = {
-    ...imprint,
-    entities: [...imprint.entities, {
-      id: entity.id, kind: entity.kind, name: entity.name,
-      ...(entity.code ? { code: entity.code } : {}),
-      ...(entity.parent ? { parent: entity.parent } : {})
-    }].sort((a, b) => a.id.localeCompare(b.id))
-  };
-}
+/** The listing shape, narrowed to what the imprint stores. */
+const asEntry = (e: EntitySummary) => ({
+  id: e.id, kind: e.kind, name: e.name,
+  ...(e.code ? { code: e.code } : {}),
+  ...(e.parent ? { parent: e.parent } : {})
+});

@@ -225,8 +225,10 @@ CREATE TABLE IF NOT EXISTS folder_kinds (
 -- boxes that do not know about each other, and nobody can answer "where is it
 -- used" — which is the question enterprise architecture is for.
 --
--- Six kinds, not sixty. A closed, small vocabulary someone can hold in their
--- head beats a faithful metamodel nobody fills in.
+-- A closed, small vocabulary someone can hold in their head beats a faithful
+-- metamodel nobody fills in. Twelve kinds, grouped by layer: the business ones,
+-- the application, the technology standard, and the four motivation kinds that
+-- are shared across projects rather than retyped in each. See ea/types.ts.
 CREATE TABLE IF NOT EXISTS ea_entities (
   id         TEXT PRIMARY KEY,
   kind       TEXT NOT NULL,
@@ -240,6 +242,20 @@ CREATE TABLE IF NOT EXISTS ea_entities (
   parent_id  TEXT REFERENCES ea_entities(id) ON DELETE SET NULL,
   -- technology-standard only: adopt / trial / hold / retire.
   status     TEXT,
+  -- What the thing itself is doing: planned / live / sunset / retired. A
+  -- separate column from status because a decision to retire a technology and
+  -- the fact that something still runs on it are the two halves of every
+  -- rationalisation question, and one column cannot hold both.
+  lifecycle  TEXT,
+  criticality TEXT,
+  -- Provenance: source is where the row came from when it did not come from
+  -- here, external_id is its key over there. Together they are what makes a
+  -- second import an update instead of a duplicate, which is the difference
+  -- between a referential that can be fed and one that can only be typed.
+  source      TEXT,
+  external_id TEXT,
+  starts_on   TEXT,
+  ends_on     TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -247,6 +263,10 @@ CREATE INDEX IF NOT EXISTS idx_ea_entities_kind ON ea_entities(kind, name);
 CREATE INDEX IF NOT EXISTS idx_ea_entities_parent ON ea_entities(parent_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_ea_entities_code
   ON ea_entities(kind, lower(code)) WHERE code IS NOT NULL;
+-- The index on (source, external_id) is NOT here: this whole block runs before
+-- the additive migrations, so on a database that predates those two columns it
+-- would fail on every connect. It is created in ensureSchema, once the columns
+-- are known to exist.
 
 CREATE TABLE IF NOT EXISTS ea_entity_texts (
   entity_id   TEXT NOT NULL REFERENCES ea_entities(id) ON DELETE CASCADE,
@@ -507,6 +527,22 @@ function ensureSchema(database: DatabaseSync): DatabaseSync {
   if (projectTplCols.length > 0 && !projectTplCols.some(col => col.name === 'meta_json')) {
     database.exec('ALTER TABLE project_templates ADD COLUMN meta_json TEXT');
   }
+  /* The referential's second wave of columns. CREATE TABLE IF NOT EXISTS above
+   * only ever reaches a fresh file, so a database that predates them needs each
+   * one added by hand — all nullable, so there is nothing to backfill and an
+   * interrupted upgrade leaves a readable database. */
+  const eaCols = plainAll<{ name: string }>(database.prepare('PRAGMA table_info(ea_entities)').all());
+  if (eaCols.length > 0) {
+    const have = new Set(eaCols.map(col => col.name));
+    for (const col of ['lifecycle', 'criticality', 'source', 'external_id', 'starts_on', 'ends_on']) {
+      if (!have.has(col)) database.exec(`ALTER TABLE ea_entities ADD COLUMN ${col} TEXT`);
+    }
+    /* Created here rather than in SCHEMA for the same reason: the index cannot
+     * exist before the columns it reads do. */
+    database.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_ea_entities_external
+      ON ea_entities(lower(source), lower(external_id))
+      WHERE source IS NOT NULL AND external_id IS NOT NULL`);
+  }
   return database;
 }
 
@@ -592,6 +628,14 @@ export function transaction<T>(fn: () => T): T {
     depth = 0;
   }
 }
+
+/** Whether a transaction is already open on this call stack.
+ *
+ *  Exported for one caller: a dry run rolls back by throwing, which only undoes
+ *  anything when it owns the outermost transaction. Inside someone else's, the
+ *  throw would unwind into *their* rollback and take their work with it — so the
+ *  dry run refuses instead of quietly writing. */
+export const inTransaction = (): boolean => depth > 0;
 
 export function getDbPath(): string { return resolveDbPath(); }
 

@@ -7,6 +7,7 @@
  * no gain.
  */
 import type { Motivation, MotivationItem, MotivationKind } from './types';
+import { isMotivationEntityKind, type EntityKind } from './ea/types';
 
 export const MOTIVATION_KINDS: MotivationKind[] = [
   'driver', 'goal', 'principle', 'requirement', 'constraint', 'assessment'
@@ -42,7 +43,7 @@ export const isMotivationKind = (v: unknown): v is MotivationKind =>
  *  document that says nothing about its reasoning exports exactly as it did
  *  before the field existed. */
 export function normalizeMotivation(
-  input: unknown, componentIds: Set<string>, entityIds: Set<string>
+  input: unknown, componentIds: Set<string>, entityKinds: Map<string, EntityKind>
 ): Motivation | undefined {
   const list = (input as Motivation | undefined)?.items;
   if (!Array.isArray(list)) return undefined;
@@ -62,12 +63,20 @@ export function normalizeMotivation(
     };
     if (item.text?.trim()) clean.text = item.text.trim();
 
+    /* The shared thing this item restates, when it is one. Kept only if the
+     * imprint backs it *and* backs it with reasoning: a goal that turned out to
+     * be an application is a citation pointing at the wrong half of the model,
+     * which is not a smaller mistake than pointing at nothing. */
+    if (typeof item.entity === 'string' && isMotivationEntityKind(entityKinds.get(item.entity))) {
+      clean.entity = item.entity;
+    }
+
     /* A component or an imprint entity, and nothing else. The two share one
      * list because a reader does not care which side of the model realises a
      * goal — only that something does. */
     const refs = (item.realizedBy || []).filter(
       (id, i, all) => typeof id === 'string'
-        && (componentIds.has(id) || entityIds.has(id))
+        && (componentIds.has(id) || entityKinds.has(id))
         && all.indexOf(id) === i
     );
     if (refs.length) clean.realizedBy = refs;
