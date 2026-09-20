@@ -1096,6 +1096,18 @@ docker compose up --build            # http://localhost:3000
 PORT=8080 docker compose up --build  # http://localhost:8080
 ```
 
+**Who the container runs as** is worked out at start rather than fixed in the image, because
+who owns the bind-mounted `data/` is the host's decision and differs by platform: `root` on a
+Linux server or a PaaS that deploys as root (Dokploy, Coolify), your own uid 501 on macOS with
+Docker Desktop, uid 1000 in a named volume. The entrypoint adopts whichever uid owns the
+directory, claims it for uid 1000 when Docker has just created it as root, and then drops
+privileges — the server itself never runs as root. Nothing to configure, and the failure it
+replaces was `unable to open database file` (`ERR_SQLITE_ERROR`, errcode 14), which reads as a
+database problem and is not one.
+
+Under **rootless Docker or Podman** the container cannot start as root and so cannot do this.
+Pin the user instead: uncomment `user:` in `docker-compose.yml` and set `DOCKER_UID`/`DOCKER_GID`.
+
 `./data` on the host is bind-mounted to `/app/data` in the container, so `data/studio.db`
 survives rebuilds. Run `npm run reset` on the **host**, not inside the container — `data` is the
 mount point there, and a mount point cannot remove itself. To use a document-reading provider, copy
