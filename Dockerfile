@@ -24,16 +24,25 @@ COPY --from=builder /app/next.config.mjs ./next.config.mjs
 # every preview 500s on a missing style.css.
 COPY --from=builder /app/viewer ./viewer
 
-# `node` (uid 1000) ships with the image and matches the first-user uid on
-# most Linux hosts, so the bind-mounted ./data stays writable. A system user
-# from adduser -S lands around uid 100 and cannot open the database there.
+# The database directory is a bind mount, so who may write it is decided by the
+# host: root:root on a Linux server or a PaaS deploy, uid 501 on macOS with
+# Docker Desktop, uid 1000 in a named volume. No single `USER` here is right on
+# all three, and getting it wrong surfaces as SQLITE_CANTOPEN — "unable to open
+# database file" — which points at the database rather than at the mount.
+#
+# So the image starts as root and the entrypoint drops to the uid that owns the
+# data directory, claiming it for uid 1000 when nobody has. `su-exec` is the
+# 10 KB alpine idiom for that step; the server itself never runs as root.
+RUN apk add --no-cache su-exec
+
 RUN mkdir -p /app/data && chown node:node /app /app/data
 VOLUME /app/data
-USER node
 
-# Documentation only — the published port comes from compose. next start reads
-# PORT at runtime, so this image listens wherever PORT says.
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+
 EXPOSE 3000
 # next directly, not `npm start`: npm as PID 1 does not forward SIGTERM, so
-# every stop would wait out the grace period and be killed mid-write.
+# every stop would wait out the grace period and be killed mid-write. The
+# entrypoint `exec`s this for the same reason — it must not linger as PID 1.
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 CMD ["node_modules/.bin/next", "start"]

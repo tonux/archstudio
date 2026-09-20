@@ -4,6 +4,15 @@ services:
     ports:
       # One knob: set PORT in .env (or the shell) and both sides follow.
       - "${PORT:-3000}:${PORT:-3000}"
+    # Nothing to set: the entrypoint runs the server as whoever owns ./data,
+    # and claims the directory for uid 1000 when Docker has just created it as
+    # root. That is what makes one compose file work on a Linux server, on a
+    # PaaS that deploys as root, and on macOS, where the mount arrives owned by
+    # you and not by the image's user.
+    #
+    # Uncomment to pin it instead — for rootless Docker or Podman, where the
+    # container cannot start as root and so cannot adapt:
+    #   user: "${DOCKER_UID:-1000}:${DOCKER_GID:-1000}"
     volumes:
       - ./data:/app/data
     environment:
