@@ -1,11 +1,15 @@
 import { NextResponse } from 'next/server';
 import { buildSectionPreviewHtml, getAddSectionAdmin } from '@/lib/admin/add-sections';
 import type { Section } from '@/lib/types';
+import { authorize } from '@/lib/auth/guard';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const denied = await authorize('manage-referential', { kind: 'referential' });
+  if (denied) return denied;
+
   const { id } = await ctx.params;
   const body = await req.json().catch(() => ({}));
   const lang = body.lang === 'fr' ? 'fr' : 'en';

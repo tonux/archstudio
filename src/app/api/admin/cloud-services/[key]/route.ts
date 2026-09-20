@@ -5,11 +5,15 @@ import {
   updateCloudService,
 } from "@/lib/admin/cloud-services";
 import type { ServiceRow } from "@/lib/templates/services";
+import { authorize, requireApi } from '@/lib/auth/guard';
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(_req: Request, ctx: { params: Promise<{ key: string }> }) {
+  const denied = await requireApi();
+  if (denied) return denied;
+
   const { key } = await ctx.params;
   const service = getCloudServiceAdmin(key);
   if (!service) return NextResponse.json({ error: "not found" }, { status: 404 });
@@ -17,6 +21,9 @@ export async function GET(_req: Request, ctx: { params: Promise<{ key: string }>
 }
 
 export async function PATCH(req: Request, ctx: { params: Promise<{ key: string }> }) {
+  const denied = await authorize('manage-referential', { kind: 'referential' });
+  if (denied) return denied;
+
   const { key } = await ctx.params;
   const body = await req.json().catch(() => ({})) as { payload?: ServiceRow };
   if (!body.payload) return NextResponse.json({ error: "payload is required" }, { status: 400 });
@@ -29,6 +36,9 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ key: string }
 }
 
 export async function DELETE(_req: Request, ctx: { params: Promise<{ key: string }> }) {
+  const denied = await authorize('manage-referential', { kind: 'referential' });
+  if (denied) return denied;
+
   const { key } = await ctx.params;
   try {
     deleteCloudService(key);

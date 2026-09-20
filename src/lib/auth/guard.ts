@@ -116,10 +116,15 @@ export async function requirePage(): Promise<Principal | null> {
   return principal;
 }
 
-/** What the browser may know about the current state. */
-export async function publicAuth(): Promise<PublicAuth> {
+/** What the browser may know about the current state.
+ *
+ *  `known` is for the one caller that has just signed someone in: the session
+ *  cookie is going out on the *response*, and `currentPrincipal()` reads the
+ *  request, which did not carry one. Without it a successful sign-in answers
+ *  `signedIn: false`, which is the opposite of what happened. */
+export async function publicAuth(known?: Principal): Promise<PublicAuth> {
   const config = authConfig();
-  const principal = config.mode === 'off' ? null : await currentPrincipal();
+  const principal = known ?? (config.mode === 'off' ? null : await currentPrincipal());
   const ctx = policyContext(principal, config.mode === 'off');
   return {
     mode: config.mode,

@@ -6,11 +6,15 @@ import { legoCatalog } from '@/lib/lego/repository';
 import demoJson from '@/lib/seed/demo.json';
 import { normalizeArchitecture } from '@/lib/defaults';
 import type { Lang } from '@/lib/templates/types';
+import { requireApi } from '@/lib/auth/guard';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const denied = await requireApi();
+  if (denied) return denied;
+
   const { id } = await ctx.params;
   const lang: Lang = new URL(req.url).searchParams.get('lang') === 'fr' ? 'fr' : 'en';
   const tpl = getFlowPatternAdmin(id);

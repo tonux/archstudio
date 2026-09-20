@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 
 import { authConfig, saveAuthConfig, switchProblem, authModeIsForced } from '@/lib/auth/config';
+import { envAccount, envAccountProblem } from '@/lib/auth/env-account';
 import { authorize, publicAuth, requireApi } from '@/lib/auth/guard';
 import {
   audit, deletePrincipal, destroySessionsOf, hasPassword, listPrincipals,
@@ -31,9 +32,16 @@ export async function GET() {
   const denied = await requireApi();
   if (denied) return denied;
 
+  /* The environment account, named but never quoted: the username so the
+   * operator can see which one it is, the problem with it so a short password
+   * is visible somewhere, and no password. This endpoint is guarded, which is
+   * why the warning can be shown here and not on the login page. */
+  const fromEnv = envAccount();
+
   return NextResponse.json({
     auth: await publicAuth(),
     forced: authModeIsForced(),
+    envAccount: fromEnv ? { username: fromEnv.username, problem: envAccountProblem() } : null,
     accounts: listPrincipals().map(p => ({ ...p, hasPassword: hasPassword(p.id) })),
     grants: listGrants(),
     roles: ROLES.map(r => ({ role: r, label: ROLE_LABELS[r], blurb: ROLE_BLURBS[r] })),

@@ -1,14 +1,21 @@
 import { NextResponse } from "next/server";
 import { listSystemCopy, upsertSystemCopy, type SystemCopyPair } from "@/lib/admin/system-copy";
+import { authorize, requireApi } from '@/lib/auth/guard';
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
+  const denied = await requireApi();
+  if (denied) return denied;
+
   return NextResponse.json({ keys: listSystemCopy() });
 }
 
 export async function POST(req: Request) {
+  const denied = await authorize('manage-referential', { kind: 'referential' });
+  if (denied) return denied;
+
   const body = (await req.json().catch(() => ({}))) as {
     key?: string;
     en?: string;

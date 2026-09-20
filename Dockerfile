@@ -31,6 +31,8 @@ RUN mkdir -p /app/data && chown node:node /app /app/data
 VOLUME /app/data
 USER node
 
+# Documentation only — the published port comes from compose. next start reads
+# PORT at runtime, so this image listens wherever PORT says.
 EXPOSE 3000
 # next directly, not `npm start`: npm as PID 1 does not forward SIGTERM, so
 # every stop would wait out the grace period and be killed mid-write.

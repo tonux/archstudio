@@ -10,6 +10,7 @@
  * authentication by clicking something in a browser.
  */
 import { db, now, plain } from '../db';
+import { envAccountConfigured } from './env-account';
 import { countCredentials } from './store';
 import { AUTH_MODES, DEFAULT_AUTH, type AuthConfig, type AuthMode } from './types';
 
@@ -35,13 +36,23 @@ function readRow(): Partial<AuthConfig> {
   }
 }
 
+/** Setting `AUTH_USERNAME` and `AUTH_PASSWORD` is how an operator says "this
+ *  install has a login", so it turns one on rather than sitting inert behind a
+ *  mode that defaults to `off`. Naming credentials and then having to open a
+ *  dialog to make them count is the kind of half-configured state that gets
+ *  discovered in production.
+ *
+ *  It yields to an explicit `AUTH_MODE`: an operator running behind
+ *  oauth2-proxy who also left credentials in the file meant the proxy. */
+const impliedMode = (): AuthMode | null => (envAccountConfigured() ? 'local' : null);
+
 /** The configuration in force. Never throws: a corrupt row reads as the
  *  default, which is `off` — the same behaviour as before identity existed. */
 export function authConfig(): AuthConfig {
   const stored = readRow();
   const forced = envMode();
   return {
-    mode: forced ?? (isMode(stored.mode) ? stored.mode : DEFAULT_AUTH.mode),
+    mode: forced ?? impliedMode() ?? (isMode(stored.mode) ? stored.mode : DEFAULT_AUTH.mode),
     emailHeader: (stored.emailHeader || process.env.AUTH_EMAIL_HEADER || DEFAULT_AUTH.emailHeader)
       .trim().toLowerCase(),
     nameHeader: (stored.nameHeader || process.env.AUTH_NAME_HEADER || DEFAULT_AUTH.nameHeader)
@@ -49,7 +60,14 @@ export function authConfig(): AuthConfig {
   };
 }
 
-export const authModeIsForced = (): boolean => envMode() !== null;
+/** Whether the environment, rather than the database, decides the mode — in
+ *  which case the dialog shows it and does not offer to change it.
+ *
+ *  Credentials in the environment pin it for the same reason `AUTH_MODE` does,
+ *  and it is the sharper half of the sentence at the top of this file: an
+ *  operator must not be able to switch authentication off in a browser while
+ *  the deployment that owns this install says it is on. */
+export const authModeIsForced = (): boolean => envMode() !== null || envAccountConfigured();
 
 /** The problem with switching to `mode`, in words, or null when it is safe.
  *
@@ -57,8 +75,13 @@ export const authModeIsForced = (): boolean => envMode() !== null;
  *  the key inside. The check belongs here rather than in the dialog, because the
  *  API is reachable without it. */
 export function switchProblem(mode: AuthMode): string | null {
-  if (authModeIsForced()) return 'The mode is pinned by AUTH_MODE in the environment.';
-  if (mode === 'local' && countCredentials() === 0) {
+  if (envMode() !== null) return 'The mode is pinned by AUTH_MODE in the environment.';
+  if (envAccountConfigured()) {
+    return 'AUTH_USERNAME and AUTH_PASSWORD in the environment keep this install on local accounts. Remove them to change the mode here.';
+  }
+  /* An environment account is a way in, so it answers this objection too —
+   * kept for the day the checks above stop returning first. */
+  if (mode === 'local' && countCredentials() === 0 && !envAccountConfigured()) {
     return 'Create an account with a password first — otherwise nobody can sign in.';
   }
   return null;

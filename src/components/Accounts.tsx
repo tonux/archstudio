@@ -25,6 +25,9 @@ interface Grant { principalId: string; principalName: string; role: string; scop
 interface RoleInfo { role: string; label: string; blurb: string }
 interface Payload {
   auth: PublicAuth; forced: boolean; accounts: Account[];
+  /** Set when AUTH_USERNAME/AUTH_PASSWORD are in the environment. Never the
+   *  password itself — only which account it is, and what is wrong with it. */
+  envAccount: { username: string; problem: string | null } | null;
   grants: Grant[]; roles: RoleInfo[]; domains: { id: string; name: string }[];
 }
 
@@ -100,10 +103,26 @@ export function AccountsDialog({ onClose }: { onClose: () => void }) {
                 ))}
               </div>
               <div className="hint">
-                {data.forced
-                  ? 'Pinned by AUTH_MODE in the environment — a deployment cannot lose its authentication by a click in a browser.'
-                  : AUTH_MODE_BLURBS[mode]}
+                {data.envAccount
+                  ? <>Pinned by <code>AUTH_USERNAME</code> and <code>AUTH_PASSWORD</code> in the
+                      environment — a deployment cannot lose its authentication by a click in a
+                      browser. Remove them to choose the mode here.</>
+                  : data.forced
+                    ? 'Pinned by AUTH_MODE in the environment — a deployment cannot lose its authentication by a click in a browser.'
+                    : AUTH_MODE_BLURBS[mode]}
               </div>
+              {data.envAccount && (
+                <div className="hint" style={{ marginTop: 6 }}>
+                  <code>{data.envAccount.username}</code> signs in with the password held in the
+                  environment. It has no row in the list below until it first signs in, and its
+                  password cannot be changed from here.
+                  {data.envAccount.problem && (
+                    <div style={{ color: 'var(--danger)', marginTop: 4 }}>
+                      {data.envAccount.problem}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             {mode === 'header' && (

@@ -1,14 +1,21 @@
 import { NextResponse } from 'next/server';
 import { createAddSection, listAddSectionsAdmin, type AddSectionCreate } from '@/lib/admin/add-sections';
+import { authorize, requireApi } from '@/lib/auth/guard';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function GET() {
+  const denied = await requireApi();
+  if (denied) return denied;
+
   return NextResponse.json({ sections: listAddSectionsAdmin() });
 }
 
 export async function POST(req: Request) {
+  const denied = await authorize('manage-referential', { kind: 'referential' });
+  if (denied) return denied;
+
   const body = (await req.json().catch(() => ({}))) as AddSectionCreate;
   try {
     const id = createAddSection(body);

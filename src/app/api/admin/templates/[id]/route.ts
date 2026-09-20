@@ -11,11 +11,15 @@ import {
   updateProjectTemplate,
   type ProjectTemplateUpdate,
 } from '@/lib/admin/project-templates';
+import { authorize, requireApi } from '@/lib/auth/guard';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const denied = await requireApi();
+  if (denied) return denied;
+
   const { id } = await ctx.params;
   const project = getProjectTemplateAdmin(id);
   if (project) {
@@ -43,6 +47,9 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
 }
 
 export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const denied = await authorize('manage-referential', { kind: 'referential' });
+  if (denied) return denied;
+
   const { id } = await ctx.params;
   const body = await req.json().catch(() => ({}));
   try {
@@ -61,6 +68,9 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
 }
 
 export async function DELETE(_req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const denied = await authorize('manage-referential', { kind: 'referential' });
+  if (denied) return denied;
+
   const { id } = await ctx.params;
   try {
     if (getProjectTemplateAdmin(id)) {
