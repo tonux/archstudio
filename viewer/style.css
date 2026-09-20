@@ -219,6 +219,39 @@ main{max-width:1440px;margin:0 auto;padding:28px 24px 90px}
   background-size:24px 24px;opacity:.05;
 }
 #edges{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:1;overflow:visible}
+/* ---------- The call chain, travelling
+   Picking a card lights the whole chain it sits in, and `.flow` is the second
+   copy of each curve — a dash of no length under a round cap, which is how a
+   stroke is made to carry a train of discs. Three things about it are
+   deliberate:
+
+   It is invisible by default and only ever lit through `.edge.tr`, which
+   engine.js sets on the edges the chain actually walks — so a sheet nobody has
+   touched does not move, and neither does a printed one.
+
+   Everything that animates sits inside `no-preference`. Asking for less motion
+   leaves the static reading intact and complete: the chain is still lit, still
+   dimmed around, still weighted by hop. The motion is the flourish, never the
+   information — losing it costs nothing that cannot be read from the page.
+
+   `--hop` staggers the start by depth, so the propagation reads outward from
+   the card that was picked rather than switching on all at once, and `--fd` is
+   the period the document asked for through ui.flowSpeedMs. Both are set by the
+   renderer; the fallbacks keep a hand-written SVG honest. Colour is the edge's
+   own — rule 1 — so a chain says scope while it moves. */
+.edge .flow{opacity:0}
+@media (prefers-reduced-motion:no-preference){
+  .edge.tr .flow{
+    opacity:.95;
+    animation:flowrun var(--fd,1.2s) linear infinite;
+    animation-delay:calc(var(--hop,1) * .17s);
+  }
+}
+/* Backwards along the offset is forwards along the curve: the path is authored
+   caller → callee, so one gap of negative offset carries each disc exactly to
+   where the next one started — a seamless loop, running in the direction of the
+   call, on both sides of the selection. */
+@keyframes flowrun{from{stroke-dashoffset:0}to{stroke-dashoffset:var(--fl,-14)}}
 /* The protocol on the line. An opaque plate rather than a halo: the curve runs
    underneath, and a stroked outline on 9 px type turns to mud. Monospace and
    muted ink — rule 3, this is something the machine knows, not prose. */
@@ -417,6 +450,11 @@ main{max-width:1440px;margin:0 auto;padding:28px 24px 90px}
 .db h4{font-family:var(--mono);font-size:10px;letter-spacing:.13em;text-transform:uppercase;color:var(--ink-3);margin:22px 0 9px;font-weight:400}
 .db h4:first-child{margin-top:0}
 .db p{margin:0 0 8px;font-size:13.5px;color:var(--ink-2)}
+/* Rule 3: the depth of the chain is something the machine counted, not prose,
+   so it is set in mono — and the two numbers are the sentence, so they take the
+   ink while the words around them stay quiet. */
+.db .chain{font-family:var(--mono);font-size:11.5px;color:var(--ink-3)}
+.db .chain b{color:var(--ink);font-weight:700;font-variant-numeric:tabular-nums}
 .db ul{margin:0;padding-left:17px;font-size:13.5px;color:var(--ink-2)}
 .db li{margin-bottom:5px}
 .taglist{display:flex;flex-wrap:wrap;gap:6px}
@@ -567,6 +605,8 @@ table.cmp td:first-child{font-weight:600;color:var(--ink)}
 }
 @media print{
   header,nav.tabs,.filters,.playbar,.scrim,.drawer{display:none!important}
+  /* A frozen frame of a moving dash is a dashed line that means nothing. */
+  .edge .flow{display:none!important}
   .view{display:block!important}
   /* Rule 5: paper drops the shadow token rather than the rules that use it. */
   :root{--shadow:none}
@@ -601,3 +641,38 @@ table.cmp td:first-child{font-weight:600;color:var(--ink)}
 .groupbar{display:flex;gap:2px;height:34px;border-radius:0;overflow:hidden;margin:14px 0 10px}
 .groupbar>div{display:grid;place-items:center;font-family:var(--mono);font-size:10.5px;font-weight:700;color:var(--on-fill);min-width:22px}
 .kbd{font-family:var(--mono);font-size:10.5px;border:1px solid var(--line-2);border-bottom-width:2px;border-radius:0;padding:1px 5px;color:var(--ink-2);background:var(--panel-2)}
+
+/* ---------------------------------------------------------- capability map
+ *
+ * Nested boxes from a tree, laid out by grid alone — no coordinates, so the
+ * same markup works here, in the print stylesheet and on screen. Depth is
+ * carried by a class rather than by an inline indent, which keeps the nesting
+ * legible when the map is three levels deep and the boxes are narrow.
+ *
+ * The heat is three states and not a ramp: nobody carries it, someone does,
+ * several do. A gradient would invite reading a 4 as worse than a 3. */
+.capmap { display: grid; grid-template-columns: repeat(var(--capcols, 3), 1fr); gap: 12px; }
+.capbox {
+  border: 1px solid var(--line-2); border-radius: 3px; padding: 10px;
+  background: var(--panel); break-inside: avoid;
+}
+.capbox.d1 { background: var(--panel-2); padding: 8px; }
+.capbox.d2, .capbox.d3 { background: var(--panel-3); padding: 6px 8px; }
+.caphead { display: flex; align-items: baseline; gap: 8px; }
+.capname { font-weight: 600; font-size: 13px; flex: 1; }
+.capbox.d1 .capname, .capbox.d2 .capname, .capbox.d3 .capname { font-weight: 500; font-size: 12px; }
+.capcode { font-size: 10px; color: var(--ink-3); }
+.capcount {
+  font-size: 10px; min-width: 18px; text-align: center; padding: 1px 5px;
+  border-radius: 10px; border: 1px solid var(--line-2); color: var(--ink-2);
+}
+/* Nobody carries it. The one state worth colouring, because it is the one
+   nobody notices by reading. */
+.capbox.cap-gap { border-style: dashed; }
+.capbox.cap-gap .capcount { border-style: dashed; color: var(--ink-3); }
+.capbox.cap-many .capcount { border-color: var(--ink-3); color: var(--ink); font-weight: 600; }
+.capkids { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; margin-top: 8px; }
+.capbox.d1 .capkids, .capbox.d2 .capkids { grid-template-columns: 1fr; }
+@media (max-width: 720px) {
+  .capmap, .capkids { grid-template-columns: 1fr !important; }
+}

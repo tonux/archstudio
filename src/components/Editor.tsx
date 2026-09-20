@@ -287,6 +287,14 @@ function ExportMenu({ projectId, name, notify }: {
             <Icon name="download" size={14} />
             <span>SVG<em>Vector — scales without going soft, for slides and print</em></span>
           </a>
+          <hr />
+          {/* Last, and on its own: the others are ways to *show* the drawing,
+              this is the one that hands the model to another discipline's tool.
+              Re-exporting merges rather than duplicating — see docs/archimate.md. */}
+          <a href={`${api}?format=archimate`}>
+            <Icon name="layers" size={14} />
+            <span>ArchiMate<em>Open Exchange XML — opens in Archi, laid out</em></span>
+          </a>
         </div>
       )}
     </div>

@@ -22,6 +22,7 @@ const TYPE_ICONS: Record<SectionType, string> = {
   timeline: 'clock',
   table: 'chart',
   compare: 'layers',
+  'capability-map': 'grid',
 };
 
 function sectionTitle(item: AdminSectionListItem, locale: 'en' | 'fr'): string {

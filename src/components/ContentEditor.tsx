@@ -11,19 +11,23 @@ import TabsEditor from './editors/TabsEditor';
 import FlowsEditor from './editors/FlowsEditor';
 import StackEditor from './editors/StackEditor';
 import SectionsEditor from './editors/SectionsEditor';
+import MotivationEditor from './editors/MotivationEditor';
 import { tabRows } from '@/lib/tabs';
 import type { LegoCatalogSnapshot } from '@/lib/lego/types';
 import type { Notify } from '@/lib/undo';
 import type { Architecture } from '@/lib/types';
 
 type Patch = (fn: (d: Architecture) => Architecture) => void;
-type PanelId = 'document' | 'tabs' | 'flows' | 'stack' | 'sections';
+type PanelId = 'document' | 'tabs' | 'flows' | 'stack' | 'motivation' | 'sections';
 
 const PANELS: { id: PanelId; label: string; icon: string; count?: (d: Architecture) => number }[] = [
   { id: 'document', label: 'Document', icon: 'home' },
   { id: 'tabs',     label: 'Tabs',     icon: 'grid',   count: d => tabRows(d).filter(t => t.visible).length },
   { id: 'flows',    label: 'Flows',    icon: 'route',  count: d => d.flows.length },
   { id: 'stack',    label: 'Tech stack', icon: 'layers', count: d => d.technologies.length },
+  /* Between the content and the sections that print it: motivation is authored
+     like content, and reaches the page through a section like everything else. */
+  { id: 'motivation', label: 'Why',   icon: 'flag',   count: d => d.motivation?.items.length ?? 0 },
   { id: 'sections', label: 'Sections', icon: 'folder', count: d => d.sections.length }
 ];
 
@@ -57,6 +61,7 @@ export default function ContentEditor({ doc, patch, catalog, notify }: {
         {panel === 'tabs' && <TabsEditor doc={doc} patch={patch} />}
         {panel === 'flows' && <FlowsEditor doc={doc} patch={patch} catalog={catalog} />}
         {panel === 'stack' && <StackEditor doc={doc} patch={patch} />}
+        {panel === 'motivation' && <MotivationEditor doc={doc} patch={patch} />}
         {panel === 'sections' && <SectionsEditor doc={doc} patch={patch} notify={notify} />}
       </div>
     </div>

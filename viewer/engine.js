@@ -57,9 +57,12 @@ const LABELS = {
     searchPlaceholder: 'Search a component, a technology…',
     allScopes: 'All scopes', anywhere: 'Anywhere', deployedOn: 'Deployed on',
     overview: 'Overview', architecture: 'Architecture',
-    flows: 'Flows', stack: 'Tech stack', hintDiagram: 'Hover = dependencies · Click = detail sheet',
+    flows: 'Flows', stack: 'Tech stack', hintDiagram: 'Hover = call chain · Click = detail sheet',
     role: 'Role', technologies: 'Technologies', responsibilities: 'Responsibilities',
+    application: 'Application', capabilities: 'Capabilities', owner: 'Owner',
+    businessObjects: 'Business objects',
     notes: 'Notes', dependsOn: 'Depends on', usedBy: 'Used by', outgoing: 'outgoing',
+    chain: 'Call chain', upstream: 'upstream', downstream: 'downstream',
     incoming: 'incoming', components: 'Components', distribution: 'Component distribution',
     endpoints: 'Endpoints', environments: 'Environments',
     prev: 'Previous', next: 'Next', play: 'Play', pause: 'Pause',
@@ -79,9 +82,12 @@ const LABELS = {
     searchPlaceholder: 'Rechercher un composant, une techno…',
     allScopes: 'Tous les périmètres', anywhere: 'Partout', deployedOn: 'Déployé sur',
     overview: "Vue d’ensemble", architecture: 'Architecture',
-    flows: 'Flux métier', stack: 'Stack technique', hintDiagram: 'Survol = dépendances · Clic = fiche détaillée',
+    flows: 'Flux métier', stack: 'Stack technique', hintDiagram: "Survol = chaîne d’appels · Clic = fiche détaillée",
     role: 'Rôle', technologies: 'Technologies', responsibilities: 'Responsabilités',
+    application: 'Application', capabilities: 'Capacités', owner: 'Propriétaire',
+    businessObjects: 'Objets métier',
     notes: 'Chantiers identifiés', dependsOn: 'Dépend de', usedBy: 'Sollicité par',
+    chain: "Chaîne d’appels", upstream: 'en amont', downstream: 'en aval',
     outgoing: 'sortant', incoming: 'entrant', components: 'Composants',
     distribution: 'Répartition des composants', endpoints: 'Domaines & endpoints',
     environments: 'Environnements',
@@ -184,6 +190,44 @@ function normalize(raw) {
    * broken should not stay broken in the tree the rest of the file reads. */
   d.environments = d.environments || [];
   const eById = Object.fromEntries(d.environments.map(e => [e.id, e]));
+
+  /* What this document quotes from the enterprise referential.
+   *
+   * Mirrors `normalizeImprint` in src/lib/ea/imprint.ts, and has to: the rule
+   * that a citation is only kept when the imprint backs it is what makes the
+   * exported file able to name a capability with no referential in reach. An id
+   * we cannot resolve would render as `cap_7f3a`, so it is dropped instead.
+   *
+   * Only rule 1 is mirrored. Rule 2 — pruning entries nobody cites — is a
+   * storage concern and the viewer never writes. */
+  d.imprint = d.imprint && Array.isArray(d.imprint.entities) ? d.imprint : null;
+  const IM = {};
+  if (d.imprint) d.imprint.entities.forEach(e => { if (e && e.id) IM[e.id] = e; });
+
+  const EA_KIND = { app: 'application', owner: 'actor',
+                    capability: 'capability', object: 'business-object' };
+  const eaOne = (id, role) => (IM[id] && IM[id].kind === EA_KIND[role] ? id : undefined);
+  const eaMany = (ids, role) =>
+    (Array.isArray(ids) ? ids : []).filter(id => eaOne(id, role));
+
+  d.components.forEach(c => {
+    if (!c.ea || typeof c.ea !== 'object') { c.ea = undefined; return; }
+    const ea = {};
+    const app = eaOne(c.ea.app, 'app'); if (app) ea.app = app;
+    const owner = eaOne(c.ea.owner, 'owner'); if (owner) ea.owner = owner;
+    const caps = eaMany(c.ea.capabilities, 'capability'); if (caps.length) ea.capabilities = caps;
+    const objs = eaMany(c.ea.objects, 'object'); if (objs.length) ea.objects = objs;
+    c.ea = Object.keys(ea).length ? ea : undefined;
+  });
+
+  /* "Sales › Billing", from the imprint alone. Stops on a cycle, which the
+   * writer prevents but a hand-edited JSON can still carry. */
+  d.entityPath = id => {
+    const parts = []; const seen = {};
+    let at = id;
+    while (at && !seen[at] && IM[at]) { seen[at] = 1; parts.unshift(IM[at].name); at = IM[at].parent; }
+    return parts.join(' › ') || id;
+  };
 
   const zById = Object.fromEntries(d.zones.map(z => [z.id, z]));
   d.zones.forEach(z => {
@@ -296,6 +340,33 @@ const LINK_KIND_LABELS = {
 };
 const linkOf = (c, to) => (c.links || []).find(l => l.to === to);
 const dashFor = kind => (kind && LINK_DASH[kind]) || '';
+
+/* The same three kinds, as movement.
+ *
+ * What travels is a train of *discs*, not a train of dashes, and the difference
+ * is not decoration. Dashes are spoken for: a broken stroke already means the
+ * call is queued or batched, and a second dashed thing sliding along it would
+ * be two grammars on one line. A disc is the mark this diagram already spends
+ * on a call — filled where the caller is, open where the callee answers — so a
+ * disc in transit reads as that call in flight and needs no key.
+ *
+ * They are drawn as a dash of no length under a round cap, which is the one way
+ * to get a moving dot out of a stroke with no second element and no motion
+ * path. `gap` is therefore the whole cycle — the spacing between two discs —
+ * and `beat` scales the period against the document's own tempo. The rhythm
+ * says what the stroke says at rest: synchronous is a steady stream,
+ * asynchronous is spaced packets, batch is the rare bulk shipment.
+ *
+ * Rule 1 holds: a disc is the edge's scope colour, never a second hue. */
+const FLOW_MOTION = {
+  sync:  { gap: 14, beat: .75 },
+  async: { gap: 22, beat: 1.25 },
+  batch: { gap: 40, beat: 2 }
+};
+const flowMotion = kind => FLOW_MOTION[kind] || FLOW_MOTION.sync;
+/* The flows view lets a document set its own pace; the chain borrows it rather
+ * than inventing a second speed knob nobody would find. */
+const FLOW_BEAT = ((DATA.ui && DATA.ui.flowSpeedMs) || 1500) / 1500;
 const describeLink = link => {
   if (!link) return '';
   const kinds = LINK_KIND_LABELS[DATA.lang] || LINK_KIND_LABELS.en;
@@ -1047,7 +1118,13 @@ function bindArchitecture() {
   $$('#v-architecture .node').forEach(n => {
     n.onclick = () => openDrawer(n.dataset.id);
     n.onmouseenter = () => setFocus(n.dataset.id);
-    n.onmouseleave = () => setFocus(null);
+    /* Back to the open sheet's chain, not to nothing. */
+    n.onmouseleave = () => setFocus(pinned);
+    /* The keyboard equivalent of the hover. The cards have been tab stops since
+     * arrow-key navigation landed, and a chain only a pointer can light is a
+     * chain half the readers of the exported file never see. */
+    n.onfocus = () => setFocus(n.dataset.id);
+    n.onblur = () => setFocus(pinned);
   });
   $('#density').onclick = () => {
     state.compact = !state.compact;
@@ -1311,38 +1388,159 @@ function onFullscreenChange() {
   });
 }
 
+/* Which calls the sheet is drawing *right now*.
+ *
+ * The filter fades what does not match, the target state drops what is leaving,
+ * and the support layer is never wired at all — so an edge can exist in the
+ * document and be absent from the page. A call being retired is not part of the
+ * target state even when both of its endpoints survive it, which is the one of
+ * the three the node classes cannot answer on their own.
+ *
+ * drawEdges and traceOf both ask here, so the lit chain can never claim a call
+ * the reader is not being shown.
+ *
+ * By id rather than by selector: this runs twice per edge on every hover, and
+ * on a landscape with a few hundred calls the difference between a hash lookup
+ * and a parsed selector is the difference between a chain that appears under
+ * the pointer and one that lags behind it. It also drops the escaping question
+ * — getElementById takes the id itself, not a pattern that has to survive
+ * being read as CSS. */
+function edgeDrawn(a, b) {
+  if (SUPPORT_LAYER && (C[a].layer === SUPPORT_LAYER || C[b].layer === SUPPORT_LAYER)) return false;
+  const ea = document.getElementById('n-' + a), eb = document.getElementById('n-' + b);
+  if (!ea || !eb || ea.classList.contains('dim') || eb.classList.contains('dim')) return false;
+  if (!state.transition) {
+    const l = linkOf(C[a], b);
+    if (l && l.state === 'removed') return false;
+  }
+  return true;
+}
+
+/* The chain a component sits in: everything that reaches it, and everything it
+ * reaches, to the end of the graph.
+ *
+ * One hop was the old reading, and it answers "who talks to this". It does not
+ * answer the question a card is usually clicked for — what a change here
+ * touches, and what a failure here takes down — because that answer is
+ * transitive and the sheet was drawing only its first step.
+ *
+ * Returned as distances rather than as a set. On a connected landscape the
+ * closure is most of the diagram, so "in the chain" alone would light the whole
+ * page and mean nothing; the hop count is what lets the renderer keep the ring
+ * that actually touches the selection loud and let the far end recede, and it
+ * is what staggers the motion so the propagation reads outward from the card
+ * that was picked.
+ *
+ * The two walks keep separate visited sets on purpose. They are two directed
+ * closures, not one undirected flood: a component downstream of the selection
+ * must not be expanded upstream, or its own unrelated callers would be dragged
+ * into a chain they are not part of. A node genuinely reachable both ways —
+ * a cycle — lands in both buckets and keeps the shorter of the two distances,
+ * which is the one the eye goes looking for. Cycles terminate on `seen`. */
+function traceOf(id) {
+  const nodes = new Map([[id, 0]]);
+  const edges = new Map();
+  const up = new Set(), down = new Set();
+  const near = (map, k, v) => { if (!map.has(k) || map.get(k) > v) map.set(k, v); };
+  const walk = (step, bucket) => {
+    const seen = new Set([id]);
+    let front = [id], hop = 0;
+    while (front.length) {
+      hop++;
+      const next = [];
+      front.forEach(here => step(here).forEach(([a, b, there]) => {
+        if (!edgeDrawn(a, b)) return;
+        near(edges, a + '\u0000' + b, hop);
+        if (seen.has(there)) return;
+        seen.add(there);
+        near(nodes, there, hop);
+        bucket.add(there);
+        next.push(there);
+      }));
+      front = next;
+    }
+  };
+  /* The edge keeps its own direction in both walks — a call does not reverse
+   * because of where the reader happened to start. */
+  walk(from => (C[from] ? C[from].deps : []).map(to => [from, to, to]), down);
+  walk(to => (INBOUND[to] || []).map(from => [from, to, from]), up);
+  return { nodes, edges, up, down };
+}
+
+/* How far the light carries. Hop 1 is the old one-hop reading and keeps it
+ * intact — border on the card, full strength on the line — and every hop after
+ * that steps down to a floor that still sits clear of the 22 % an unrelated
+ * card fades to, so the chain stays followable to its end without ever
+ * competing with the ring that touches the selection.
+ *
+ * The ramp is steep on purpose, and the reason is the worst case rather than
+ * the common one. Where a landscape has a cycle running through it, every
+ * component is transitively upstream and downstream of every other, the closure
+ * is the entire sheet, and a flat "in the chain" highlight would light all of it
+ * and say nothing. Ramped, that same sheet still answers: the near ring is
+ * loud, everything past it sinks towards the floor, and the reading the reader
+ * takes away — this one touches the whole landscape, and here is what it
+ * touches first — is the true one. Nothing is ever hidden to buy that: the far
+ * end is faint, not absent, because it really is in the chain. */
+const TRACE_FLOOR = .34, TRACE_STEP = .2;
+const traceFade = hop => Math.max(TRACE_FLOOR, 1 - Math.max(0, hop - 1) * TRACE_STEP);
+
 let focused = null;
+/* A selection outlives the pointer. The drawer stays open while the mouse goes
+ * looking elsewhere, so leaving a card falls back to the pinned chain rather
+ * than to nothing — otherwise reading the sheet next to an open sheet means
+ * keeping the cursor parked on one box. */
+let pinned = null;
+
 function setFocus(id) {
   focused = id;
-  const rel = new Set();
-  if (id) { rel.add(id); C[id].deps.forEach(x => rel.add(x)); (INBOUND[id] || []).forEach(x => rel.add(x)); }
+  const tr = id && C[id] ? traceOf(id) : null;
   $$('#v-architecture .node').forEach(n => {
-    const on = !id || rel.has(n.dataset.id);
-    n.classList.toggle('hit', !!id && rel.has(n.dataset.id));
-    if (!n.classList.contains('sel')) n.style.opacity = matches(C[n.dataset.id]) ? (on ? '' : '.22') : '';
+    const hop = tr ? tr.nodes.get(n.dataset.id) : undefined;
+    /* The border still means "one call away". Widening it to the whole chain
+     * would spend the loudest mark on the most common answer. */
+    n.classList.toggle('hit', hop !== undefined && hop === 1);
+    if (!n.classList.contains('sel')) {
+      n.style.opacity = !matches(C[n.dataset.id]) ? ''
+        : !tr ? ''
+        : hop === undefined ? '.22'
+        : hop === 0 ? ''
+        : traceFade(hop).toFixed(2);
+    }
   });
   /* The whole edge fades, not just its stroke: the endpoint discs carry the
-   * direction, so they have to dim with the line they belong to. */
+   * direction, so they have to dim with the line they belong to. `--hop` is
+   * read by the stylesheet, which staggers the travelling marks by it. */
   $$('#edges g.edge').forEach(g => {
-    const active = id && (g.dataset.a === id || g.dataset.b === id);
+    const hop = tr ? tr.edges.get(g.dataset.a + '\u0000' + g.dataset.b) : undefined;
     /* Resting values come back from the mark, not from the constants: this runs
      * on every hover and would otherwise flatten a ghosted removal into an
-     * ordinary edge the first time the pointer crossed the sheet. Hovering it
-     * still lifts it to full strength — a retired call is exactly what you are
-     * hovering the node to read. */
+     * ordinary edge the first time the pointer crossed the sheet. A call inside
+     * the chain still lifts — a retired call is exactly what you are hovering
+     * the node to read. */
     const st = g.dataset.state;
     const rest = st === 'removed' ? .3 * REMOVED_GHOST : .3;
-    g.setAttribute('opacity', id ? (active ? 1 : .07) : rest);
+    /* The light reaches the end of the chain; the movement stops where the ramp
+     * has bottomed out. Past that depth one hop no longer looks different from
+     * the next, so a disc travelling there tells the reader nothing it can use
+     * — and on a landscape with a cycle in it, where the closure is every call
+     * on the sheet, it is several hundred curves animating to say it. The test
+     * is the ramp's own, so the two cannot drift apart. */
+    g.classList.toggle('tr', hop !== undefined && traceFade(hop) > TRACE_FLOOR);
+    if (hop !== undefined) g.style.setProperty('--hop', hop);
+    g.setAttribute('opacity', !tr ? rest : hop === undefined ? .07 : traceFade(hop).toFixed(2));
     g.querySelector('path').setAttribute('stroke-width',
-      active ? 2 : (st ? STATE_STROKE[st] : 1.2));
+      hop === 1 ? 2 : hop !== undefined ? 1.6 : (st ? STATE_STROKE[st] : 1.2));
   });
   /* The protocol plate follows its line, with a floor: at rest it stays fully
    * legible where the curve sits at 30 %, because reading which call is not
    * REST is the reason it is drawn — but a label whose edge has been faded out
-   * of the conversation has to go with it. */
+   * of the conversation has to go with it. Inside the chain it is full strength
+   * at every depth: a plate faded to the ramp's floor is not a plate, it is a
+   * smudge, and the depth is already being said by the curve under it. */
   $$('#edges g.edgelbl').forEach(g => {
-    const active = id && (g.dataset.a === id || g.dataset.b === id);
-    g.setAttribute('opacity', id ? (active ? 1 : .07) : 1);
+    const on = tr && tr.edges.has(g.dataset.a + '\u0000' + g.dataset.b);
+    g.setAttribute('opacity', !tr ? 1 : on ? 1 : .07);
   });
 }
 
@@ -1365,9 +1563,8 @@ function drawEdges() {
    * under a curve drawn later in the loop. */
   let labels = '';
   EDGES.forEach(([a, b]) => {
-    if (SUPPORT_LAYER && (C[a].layer === SUPPORT_LAYER || C[b].layer === SUPPORT_LAYER)) return;
-    const ea = $('#n-' + CSS.escape(a)), eb = $('#n-' + CSS.escape(b));
-    if (!ea || !eb || ea.classList.contains('dim') || eb.classList.contains('dim')) return;
+    if (!edgeDrawn(a, b)) return;
+    const ea = document.getElementById('n-' + a), eb = document.getElementById('n-' + b);
     const ra = ea.getBoundingClientRect(), rb = eb.getBoundingClientRect();
     const x1 = (ra.left - box.left + ra.width / 2) / sc;
     const x2 = (rb.left - box.left + rb.width / 2) / sc;
@@ -1395,11 +1592,6 @@ function drawEdges() {
      * and so the open circle's paper fill still punches through. */
     const colour = col[C[a].group];
     const link = linkOf(C[a], b) || {};
-    /* A call being retired is not part of the target state, even when both of
-     * its endpoints survive it. (The other direction — an endpoint leaving —
-     * is already handled: the node is dimmed, and dimmed edges are skipped
-     * above.) */
-    if (!state.transition && link.state === 'removed') return;
     const dash = dashFor(link.kind);
     /* The plate carries the same data attributes as the line it belongs to:
      * hovering a node has to take the label with the curve, or a dimmed edge
@@ -1414,12 +1606,30 @@ function drawEdges() {
      * a colour — rule 1 — and both survive a monochrome print. */
     const rest = link.state === 'removed' ? (.3 * REMOVED_GHOST).toFixed(3) : '.3';
     const wide = link.state ? STATE_STROKE[link.state] : 1.2;
+    const d = `M${x1.toFixed(1)},${y1.toFixed(1)} C${x1.toFixed(1)},${(y1 + k1).toFixed(1)} `
+            + `${x2.toFixed(1)},${(y2 + k2).toFixed(1)} ${x2.toFixed(1)},${y2.toFixed(1)}`;
+    /* The same curve a second time, carrying the travelling discs, slotted
+     * between the line and its endpoints: they ride on the stroke without
+     * burying the two shapes that carry direction at rest, and they are wider
+     * than it so each one reads as a disc on a line rather than as a swelling
+     * of the line. It is inert until the chain lights it — everything that
+     * moves it hangs off `.edge.tr` in the stylesheet — so an untouched sheet
+     * is as still as it has always been, and a reader who has asked for less
+     * motion never sees it at all.
+     *
+     * Direction needs no arrowhead here either: the curve is authored from
+     * caller to callee, so walking the dash offset backwards walks the call
+     * forwards, upstream and downstream alike. */
+    const mo = flowMotion(link.kind);
     out += `<g class="edge" opacity="${rest}" data-a="${esc(a)}" data-b="${esc(b)}"`
          + `${link.state ? ` data-state="${link.state}"` : ''}>`
-         + `<path d="M${x1.toFixed(1)},${y1.toFixed(1)} C${x1.toFixed(1)},${(y1 + k1).toFixed(1)} `
-         + `${x2.toFixed(1)},${(y2 + k2).toFixed(1)} ${x2.toFixed(1)},${y2.toFixed(1)}" fill="none" `
+         + `<path d="${d}" fill="none" `
          + `stroke="${colour}" stroke-width="${wide}" stroke-linecap="round"`
          + `${dash ? ` stroke-dasharray="${dash}"` : ''}></path>`
+         + `<path class="flow" d="${d}" fill="none" stroke="${colour}" `
+         + `stroke-width="${(wide + 2.6).toFixed(1)}" stroke-linecap="round" `
+         + `stroke-dasharray="0.01 ${mo.gap}" `
+         + `style="--fl:${-mo.gap};--fd:${(mo.beat * FLOW_BEAT).toFixed(2)}s"></path>`
          + `<circle cx="${x1.toFixed(1)}" cy="${y1.toFixed(1)}" r="3.5" fill="${colour}"></circle>`
          + `<circle cx="${x2.toFixed(1)}" cy="${y2.toFixed(1)}" r="3" style="fill:var(--panel)" `
          + `stroke="${colour}" stroke-width="1.5"></circle>`
@@ -1591,9 +1801,49 @@ function renderSection(sec) {
     + (sec.subtitle ? `<p class="sec-sub">${rich(sec.subtitle)}</p>` : '');
   const body = ({
     cards: renderCards, timeline: renderTimeline, table: renderTable,
-    compare: renderCompare, text: renderText
+    compare: renderCompare, text: renderText, 'capability-map': renderCapabilityMap
   }[sec.type] || (() => `<div class="card empty">Unknown section type "${esc(sec.type)}"</div>`))(sec);
   return head + body + (sec.note ? `<div style="height:18px"></div><div class="note">${rich(sec.note)}</div>` : '');
+}
+
+/* The capability map. Mirrors `src/lib/views/capability-map.ts` — the column
+ * rule especially, because the map has to be the same shape here, on paper and
+ * on screen, and two rules that disagree would make the printed deliverable a
+ * different drawing from the one that was approved.
+ *
+ * Nested boxes, laid out by CSS from the tree alone. No coordinates and no
+ * measuring pass: this file has no layout engine and does not need one.
+ *
+ * The count is the point. A box carried by nobody is a gap and says so; one
+ * carried by three or more is a conversation. Without the numbers this is an
+ * org chart. */
+function capabilityColumns(nodes) {
+  if (nodes.length <= 2) return nodes.length || 1;
+  if (nodes.some(n => (n.children || []).length > 3)) return 2;
+  return nodes.length <= 6 ? 3 : 4;
+}
+
+function capabilityBox(node, depth) {
+  const kids = node.children || [];
+  const n = typeof node.count === 'number' ? node.count : null;
+  /* Three states, not a gradient: nobody, someone, too many. A ramp would
+   * invite reading a 4 as worse than a 3, which it is not. */
+  const heat = n === null ? '' : n === 0 ? ' cap-gap' : n >= 3 ? ' cap-many' : ' cap-ok';
+  return `<div class="capbox d${Math.min(depth, 3)}${heat}">
+    <div class="caphead">
+      <span class="capname">${esc(node.name)}</span>
+      ${node.code ? `<span class="capcode mono">${esc(node.code)}</span>` : ''}
+      ${n === null ? '' : `<span class="capcount" title="Applications carrying it">${n}</span>`}
+    </div>
+    ${kids.length ? `<div class="capkids">${kids.map(k => capabilityBox(k, depth + 1)).join('')}</div>` : ''}
+  </div>`;
+}
+
+function renderCapabilityMap(sec) {
+  const roots = sec.roots || [];
+  if (!roots.length) return `<div class="card empty">No capabilities.</div>`;
+  return `<div class="capmap" style="--capcols:${capabilityColumns(roots)}">${
+    roots.map(r => capabilityBox(r, 0)).join('')}</div>`;
 }
 
 function renderCards(sec) {
@@ -1683,12 +1933,47 @@ function renderCompare(sec) {
 /* ======================================================================== *
  * DRAWER
  * ======================================================================== */
+/* What the referential says about this box, rendered from the document's own
+ * imprint and from nothing else. This is the whole reason the imprint exists:
+ * the file is opened offline, months later, by someone who has never heard of
+ * the referential, and it still has to read as "carries the Billing capability"
+ * rather than as an id. */
+function eaBlock(c) {
+  const ea = c.ea;
+  if (!ea) return '';
+  const one = (label, id) =>
+    id ? `<h4>${label}</h4><p>${esc(DATA.entityPath(id))}</p>` : '';
+  const many = (label, ids) => (ids && ids.length)
+    ? `<h4>${label}</h4><div class="taglist">${
+        ids.map(id => `<span class="tag">${esc(DATA.entityPath(id))}</span>`).join('')}</div>`
+    : '';
+  return one(T.application, ea.app)
+    + many(T.capabilities, ea.capabilities)
+    + one(T.owner, ea.owner)
+    + many(T.businessObjects, ea.objects);
+}
+
 function openDrawer(id) {
   const c = C[id]; if (!c) return;
   const col = gvar(c.group);
   const outs = c.deps.map(x => C[x]).filter(Boolean);
   const ins = (INBOUND[id] || []).map(x => C[x]).filter(Boolean);
   const layer = L[c.layer];
+
+  /* The chain, counted. The sheet already says it by dimming everything that is
+   * not in it, but the number is what gets quoted in the review — "eleven
+   * downstream" is the sentence somebody repeats — and the two lists below stop
+   * at one hop, so without this the drawer contradicts the picture beside it.
+   *
+   * Drawn only when the sheet is mounted, because it is a reading *of* the
+   * sheet: the counts follow the filter and the transition toggle, and a number
+   * describing a diagram the reader cannot see would be worse than silence.
+   * (The drawer also opens from the flows view, where there is no sheet.) */
+  const tr = $('#v-architecture .node') ? traceOf(id) : null;
+  const chain = tr && (tr.up.size || tr.down.size)
+    ? `<h4>${T.chain}</h4><p class="chain"><b>${tr.up.size}</b> ${esc(T.upstream)}`
+      + ` · <b>${tr.down.size}</b> ${esc(T.downstream)}</p>`
+    : '';
 
   $('#dh').style.setProperty('--c', col);
   $('#dh').innerHTML = `
@@ -1725,9 +2010,11 @@ function openDrawer(id) {
           e.url ? `<a href="${esc(/^https?:/.test(e.url) ? e.url : 'https://' + e.url)}" target="_blank" rel="noopener">${esc(e.url)}</a>` : ''
         }${meta ? `<em>${esc(meta)}</em>` : ''}</dd></div>`;
       }).join('')}</dl>` : ''}
+    ${eaBlock(c)}
     ${c.tech.length ? `<h4>${T.technologies}</h4><div class="taglist">${c.tech.map(t => `<span class="tag k">${esc(t)}</span>`).join('')}</div>` : ''}
     ${c.features.length ? `<h4>${T.responsibilities}</h4><ul>${c.features.map(f => `<li>${rich(f)}</li>`).join('')}</ul>` : ''}
     ${c.notes.length ? `<h4>${T.notes}</h4><ul>${c.notes.map(f => `<li>${rich(f)}</li>`).join('')}</ul>` : ''}
+    ${chain}
     ${outs.length ? `<h4>${T.dependsOn}</h4><div class="rel">${relBtns(outs, T.outgoing, false)}</div>` : ''}
     ${ins.length ? `<h4>${T.usedBy}</h4><div class="rel">${relBtns(ins, T.incoming, true)}</div>` : ''}`;
 
@@ -1735,11 +2022,17 @@ function openDrawer(id) {
   $('#dclose').onclick = closeDrawer;
   $$('#db [data-open]').forEach(b => b.onclick = () => openDrawer(b.dataset.open));
   $$('.node').forEach(n => n.classList.toggle('sel', n.dataset.id === id));
+  /* Opening a sheet pins its chain: the light is now the reader's, and it stays
+   * until they close it or pick another card. */
+  pinned = id;
+  setFocus(id);
   location.hash = 'c/' + encodeURIComponent(id);
 }
 function closeDrawer() {
   $('#drawer').classList.remove('on'); $('#scrim').classList.remove('on');
   $$('.node').forEach(n => n.classList.remove('sel'));
+  pinned = null;
+  setFocus(null);
   if (location.hash.startsWith('#c/')) history.replaceState(null, '', location.pathname + location.search);
 }
 

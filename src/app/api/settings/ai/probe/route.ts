@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { adapterFor, foreignKeyOwner, providerInfo } from '@/lib/ai/providers';
 import { candidateAiConfig } from '@/lib/settings';
+import { requireApi } from '@/lib/auth/guard';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -24,6 +25,9 @@ const PING_SCHEMA = {
 };
 
 export async function POST(req: Request) {
+  const denied = await requireApi();
+  if (denied) return denied;
+
   const body = await req.json().catch(() => ({}));
   const cfg = candidateAiConfig(body);
 

@@ -1,5 +1,6 @@
 import { createFolder, createProject, isEmpty, listFolders } from './store';
 import { ensureLegoCatalog } from './lego/repository';
+import { backfillIndex } from './ea/hydrate';
 import { contentFromAdmin } from './admin/flags';
 import { getFeaturedPublishedProjectTemplate, instantiateProjectTemplate } from './admin/project-templates';
 import demo from './seed/demo.json';
@@ -12,6 +13,9 @@ import type { Architecture } from './types';
  */
 export function ensureSeed(): void {
   ensureLegoCatalog();
+  /* Derived tables for documents that predate them. A no-op on every run but
+   * the first after an upgrade. */
+  backfillIndex();
   if (!isEmpty() || listFolders().length) return;
 
   const examples = createFolder('Examples', null, '#0099A0');

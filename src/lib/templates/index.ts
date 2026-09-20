@@ -72,8 +72,8 @@ const STR = {
   },
   usedBy:            { en: 'Used by {list}.', fr: 'Utilisé par {list}.' },
   archSubtitle:      {
-    en: 'Hover a component to reveal its dependencies, click it for the detail sheet.',
-    fr: 'Survole un composant pour révéler ses dépendances, clique pour la fiche détaillée.'
+    en: 'Hover a component to light the whole call chain it sits in, click it for the detail sheet.',
+    fr: "Survole un composant pour éclairer toute la chaîne d’appels où il se trouve, clique pour la fiche détaillée."
   }
 } as const;
 

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createProject } from '@/lib/store';
 import type { Architecture } from '@/lib/types';
+import { authorize } from '@/lib/auth/guard';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -28,6 +29,9 @@ function parseDocument(text: string): Architecture {
 }
 
 export async function POST(req: Request) {
+  const denied = await authorize('write', { kind: 'workspace' });
+  if (denied) return denied;
+
   const body = await req.json().catch(() => ({}));
   const text = String(body.text || '');
   if (!text.trim()) return NextResponse.json({ error: 'Nothing to import.' }, { status: 400 });
